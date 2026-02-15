@@ -15,6 +15,9 @@
   --border-color: #e5e5e5;
   --accent-color: #007aff;
   --accent-green: #34c759;
+  --active-bg: #f0f7ff;
+  --hover-bg: #f5f5f5;
+  --shadow-color: rgba(0, 0, 0, 0.12);
 }
 
 [data-theme="dark"] {
@@ -28,6 +31,26 @@
   --border-color: #38383a;
   --accent-color: #0a84ff;
   --accent-green: #30d158;
+  --active-bg: #0a4080;
+  --hover-bg: #3a3a3c;
+  --shadow-color: rgba(0, 0, 0, 0.4);
+}
+
+/* Warm/Sepia Theme - 淡黄色护眼主题 */
+[data-theme="warm"] {
+  --bg-primary: #faf8f5;
+  --bg-secondary: #f5f2eb;
+  --bg-tertiary: #ebe8e0;
+  --text-primary: #3d3a35;
+  --text-secondary: #5a5650;
+  --text-tertiary: #787470;
+  --text-muted: #a8a59f;
+  --border-color: #e0ddd5;
+  --accent-color: #b8860b;
+  --accent-green: #6b8e23;
+  --active-bg: #f0ebdf;
+  --hover-bg: #efecea;
+  --shadow-color: rgba(60, 55, 45, 0.1);
 }
 
 html, body, #root {
@@ -115,12 +138,12 @@ body {
 }
 
 .article-item:hover {
-  background-color: var(--bg-tertiary);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+  background-color: var(--hover-bg);
+  box-shadow: 0 2px 6px var(--shadow-color);
 }
 
 .article-item.active {
-  background-color: #f0f7ff;
+  background-color: var(--active-bg);
   border-left: 4px solid var(--accent-color);
 }
 
@@ -153,6 +176,32 @@ body {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+/* Custom audio player */
+.custom-audio-player audio {
+  display: none;
+}
+
+.custom-audio-player button {
+  transition: all 0.15s ease;
+}
+
+.custom-audio-player button:hover {
+  opacity: 0.9;
+  transform: scale(1.02);
+}
+
+.custom-audio-player button:active {
+  transform: scale(0.98);
+}
+
+.audio-progress {
+  transition: opacity 0.15s ease;
+}
+
+.audio-progress:hover {
+  opacity: 0.8;
 }
 
 /* Reader styles */
@@ -254,6 +303,18 @@ body {
 
 .original-link:hover {
   text-decoration: underline;
+}
+
+/* Fullscreen Reader */
+.fullscreen-reader {
+  flex: 1;
+  min-width: 0;
+  background-color: var(--bg-secondary);
+}
+
+.fullscreen-reader .reader-content {
+  max-width: 800px;
+  margin: 0 auto;
 }
 
 /* Animation */
