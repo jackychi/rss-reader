@@ -156,16 +156,31 @@ function App() {
     }
   }, [setTheme, theme])
 
+  // ============ 加载所有缓存文章用于计算未读数 ============
+  const [allCachedArticles, setAllCachedArticles] = useState([])
+
+  useEffect(() => {
+    const loadAllCached = async () => {
+      const all = await getArticles()
+      setAllCachedArticles(all)
+    }
+    loadAllCached()
+  }, [selectedFeed]) // 切换订阅源时重新加载
+
   // ============ 计算未读数 ============
+  // 使用所有缓存的文章来计算，确保切换订阅源后未读数不丢失
   const unreadCounts = useMemo(() => {
     const counts = {}
     const feedUnreadCounts = {}
+
+    // 使用 allCachedArticles 计算未读数，而不是当前显示的 articles
+    const articleSource = allCachedArticles.length > 0 ? allCachedArticles : articles
 
     feeds.forEach(category => {
       let categoryUnread = 0
       category.feeds.forEach(feed => {
         const key = `${category.category}-${feed.xmlUrl}`
-        const feedArticles = articles.filter(a => a.feedUrl === feed.xmlUrl)
+        const feedArticles = articleSource.filter(a => a.feedUrl === feed.xmlUrl)
         const unreadInFeed = feedArticles.filter(a => {
           const articleKey = `${a.feedUrl}-${a.guid || a.link}`
           return readStatus[articleKey] !== true
@@ -178,7 +193,7 @@ function App() {
     })
 
     return { ...counts, ...feedUnreadCounts }
-  }, [feeds, articles, readStatus])
+  }, [feeds, allCachedArticles, articles, readStatus])
 
   // 未读文章 Set（用于快速查找）
   const unreadArticles = useMemo(() => {
@@ -301,42 +316,45 @@ function App() {
   const handleSelectAll = useCallback(async () => {
     const currentId = createRequest()
     requestIdRef.current = currentId
-    setSelectedFeed({ title: 'All Articles', xmlUrl: 'all' })
+    setSelectedFeed({ title: '已缓存文章', xmlUrl: 'cached' })
     setSelectedArticle(null)
     setShowOriginal(false)
     setArticleSearchQuery('')
-    setIsFullscreen(false) // 切换到全部文章时退出全屏模式
+    setIsFullscreen(false) // 切换到已缓存文章时退出全屏模式
 
-    // 离线模式：直接从 IndexedDB 加载所有缓存
-    if (!isOnline) {
-      console.log('[App] Offline mode - loading all cached from IndexedDB')
-      const cachedArticles = await getArticles()
-      if (cachedArticles.length > 0) {
-        console.log('[App] Loaded', cachedArticles.length, 'cached articles')
-        setArticles(cachedArticles)
-      } else {
-        setArticles([])
-      }
-      return
+    // 直接从 IndexedDB 加载所有缓存的文章
+    console.log('[App] Loading all cached articles from IndexedDB')
+    const cachedArticles = await getArticles()
+    if (cachedArticles.length > 0) {
+      console.log('[App] Loaded', cachedArticles.length, 'cached articles')
+      // 按发布时间倒序排列
+      const sorted = cachedArticles.sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate))
+      setArticles(sorted)
+    } else {
+      setArticles([])
     }
-
-    const allFeeds = feeds.flatMap(f => f.feeds)
-    await fetchAllFeeds(allFeeds, currentId)
-  }, [feeds, createRequest, fetchAllFeeds, isOnline, setArticles])
+  }, [createRequest, setArticles])
 
   const handleRefresh = useCallback(async () => {
     if (!selectedFeed) return
     const currentId = createRequest()
     requestIdRef.current = currentId
     setIsRefreshing(true)
-    if (selectedFeed.xmlUrl === 'all') {
-      const allFeeds = feeds.flatMap(f => f.feeds)
-      await fetchAllFeeds(allFeeds, currentId)
+
+    // 已缓存文章：从 IndexedDB 重新加载
+    if (selectedFeed.xmlUrl === 'cached') {
+      console.log('[App] Refreshing cached articles from IndexedDB')
+      const cachedArticles = await getArticles()
+      if (cachedArticles.length > 0) {
+        const sorted = cachedArticles.sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate))
+        setArticles(sorted)
+      }
     } else {
+      // 其他订阅源：正常刷新
       await fetchAllFeeds([selectedFeed], currentId)
     }
     setIsRefreshing(false)
-  }, [selectedFeed, feeds, createRequest, fetchAllFeeds])
+  }, [selectedFeed, createRequest, fetchAllFeeds, setArticles])
 
   const handleImportOPML = useCallback(async (event) => {
     const file = event.target.files[0]

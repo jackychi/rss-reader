@@ -98,7 +98,7 @@ export const defaultFeeds = [
     ]
   },
   {
-    category: "Articles",
+    category: "常看常听",
     feeds: [
       { title: "游荡集", xmlUrl: "https://feed.xyzfm.space/6m6qmdfmaf6d" },
       { title: "阮一峰的网络日志", xmlUrl: "http://feeds.feedburner.com/ruanyifeng" },
@@ -123,10 +123,11 @@ export const defaultFeeds = [
       { title: "Art21", xmlUrl: "https://www.youtube.com/feeds/videos.xml?channel_id=UC6Z_Gbfo7xwSMs6Ahkv-m3Q" },
       { title: "The Browser Company", xmlUrl: "https://www.youtube.com/feeds/videos.xml?channel_id=UCT5qXmLacW_a4DE-3EgeOiQ" },
       { title: "IN核局", xmlUrl: "https://www.youtube.com/feeds/videos.xml?channel_id=UCh6gAbFmwsoif41t_jow_QQ" },
+      { title: "Lenny's Podcast", xmlUrl: "https://www.youtube.com/feeds/videos.xml?channel_id=UC6t1O76G0jYXOAoYCm153dA" },
     ]
   },
   {
-    category: "科技 (Technology)",
+    category: "科技 (Tech)",
     feeds: [
       { title: "Ars Technica", xmlUrl: "http://feeds.arstechnica.com/arstechnica/index/" },
       { title: "TechCrunch", xmlUrl: "https://techcrunch.com/feed/" },
@@ -202,12 +203,8 @@ export const defaultFeeds = [
       { title: "宝玉(@dotey)", xmlUrl: "https://api.xgo.ing/rss/user/97f1484ae48c430fbbf3438099743674" },
       { title: "Fenng 的收藏", xmlUrl: "https://www.douban.com/feed/people/fenng/interests" },
       { title: "MacTalk", xmlUrl: "https://plink.anyfeeder.com/weixin/sagacity-mac" },
-      { title: "Google Gemini(@GeminiApp)", xmlUrl: "https://api.xgo.ing/rss/user/6fb337feeec44ca38b79491b971d868d" },
-      { title: "Google AI(@GoogleAI)", xmlUrl: "https://api.xgo.ing/rss/user/4de0bd2d5cef4333a0260dc8157054a7" },
-      { title: "Google AI Developers(@googleaidevs)", xmlUrl: "https://api.xgo.ing/rss/user/69d925d4a8d44221b03eecbe07bd0f74" },
       { title: "GitHub Trending", xmlUrl: "https://mshibanami.github.io/GitHubTrendingRSS/daily/all.xml" },
       { title: "Readhub - 每日早报", xmlUrl: "https://rsshub-eta-topaz-88.vercel.app/readhub/daily" },
-      { title: "Lex Fridman(@lexfridman)", xmlUrl: "https://api.xgo.ing/rss/user/adf65931519340f795e2336910b4cd15" },
     ]
   },
   {
@@ -225,6 +222,7 @@ export const defaultFeeds = [
       { title: "Fenng的微博", xmlUrl: "https://rsshub-eta-topaz-88.vercel.app/weibo/user/1577826897" },
       { title: "Twitter @Google AI", xmlUrl: "https://rsshub-eta-topaz-88.vercel.app/twitter/user/GoogleAI" },
       { title: "Twitter @Google AI Developers", xmlUrl: "https://rsshub-eta-topaz-88.vercel.app/twitter/user/googleaidevs" },
+      { title: "Twitter @Google Gemini", xmlUrl: "https://rsshub-eta-topaz-88.vercel.app/twitter/user/GeminiApp" },
       { title: "Twitter @宝玉", xmlUrl: "https://rsshub-eta-topaz-88.vercel.app/twitter/user/dotey" },
       { title: "Twitter @Carlos Gong", xmlUrl: "https://rsshub-eta-topaz-88.vercel.app/twitter/user/Carlos_Gong" },
       { title: "Twitter @Lex Fridman", xmlUrl: "https://rsshub-eta-topaz-88.vercel.app/twitter/user/lexfridman" },

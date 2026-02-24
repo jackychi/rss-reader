@@ -27,15 +27,24 @@ export function useRSSFetcher() {
     const isXgoIng = feed.xmlUrl.includes('api.xgo.ing')
     const rsshubBase = 'https://rsshub-eta-topaz-88.vercel.app'
 
+    // 通用 limit 参数（用于非 rss2json 的代理）
+    const limitParam = '&limit=100'
+    // 问号还是 &
+    const hasQuery = feed.xmlUrl.includes('?')
+    const urlSuffix = hasQuery ? limitParam : ''
+
     const proxies = isXgoIng
       ? [`${rsshubBase}/${feed.xmlUrl.replace(/^https?:\/\//, '')}`]
       : [
+          // 优先尝试直接请求
           { url: feed.xmlUrl, isDirect: true },
+          // 代理都加 limit（除了 rss2json）
+          `https://corsproxy.io/?${encodeURIComponent(feed.xmlUrl)}${urlSuffix}`,
+          `https://api.allorigins.win/get?url=${encodeURIComponent(feed.xmlUrl)}${urlSuffix}`,
+          `https://cors-anywhere.herokuapp.com/${feed.xmlUrl}${urlSuffix}`,
+          `${rsshubBase}/${feed.xmlUrl.replace(/^https?:\/\//, '')}${urlSuffix}`,
+          // rss2json 免费版有 10 条限制，放最后
           { url: `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feed.xmlUrl)}`, isRss2Json: true },
-          `https://corsproxy.io/?${encodeURIComponent(feed.xmlUrl)}`,
-          `https://api.allorigins.win/get?url=${encodeURIComponent(feed.xmlUrl)}`,
-          `https://cors-anywhere.herokuapp.com/${feed.xmlUrl}`,
-          `${rsshubBase}/${feed.xmlUrl.replace(/^https?:\/\//, '')}`,
         ]
 
     let articlesWithFeed = null

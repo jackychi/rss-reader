@@ -22,3 +22,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Test coverage
+coverage
+
+# Serena (AI assistant)
+.serena/

@@ -81,16 +81,16 @@ export default function Sidebar({
         </div>
       </div>
 
-      {/* 全部文章 */}
+      {/* 已缓存文章 */}
       <div style={{ padding: '0 12px 12px' }}>
         <div
           onClick={onSelectAll}
-          className={`sidebar-item ${!selectedFeed || selectedFeed.xmlUrl === 'all' ? 'active' : ''}`}
+          className={`sidebar-item ${!selectedFeed || selectedFeed.xmlUrl === 'cached' ? 'active' : ''}`}
           style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderRadius: '6px' }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <FileText size={16} />
-            <span>全部文章</span>
+            <span>已缓存文章</span>
           </div>
           {totalUnread > 0 && (
             <span style={{
