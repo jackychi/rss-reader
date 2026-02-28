@@ -1,6 +1,5 @@
 // Service Worker for RSS Reader - Offline Support
 
-const CACHE_NAME = 'rss-reader-cache-v1';
 const STATIC_CACHE = 'rss-reader-static-v1';
 const API_CACHE = 'rss-reader-api-v1';
 
@@ -127,7 +126,7 @@ async function networkFirst(request) {
       cache.put(request, networkResponse.clone());
     }
     return networkResponse;
-  } catch (error) {
+  } catch {
     console.log('[SW] Network First - Falling back to cache');
     const cachedResponse = await caches.match(request);
     if (cachedResponse) {

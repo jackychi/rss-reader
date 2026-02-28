@@ -83,8 +83,6 @@ export async function getArticles(feedUrl = null, limit = 100) {
     const index = feedUrl ? store.index('feedUrl') : null
 
     return new Promise((resolve, reject) => {
-      const results = []
-
       const request = index
         ? index.getAll(IDBKeyRange.only(feedUrl), limit)
         : store.getAll()

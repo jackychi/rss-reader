@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { Rss, ChevronRight, ChevronDown, Folder, FolderOpen, FileText, Search } from 'lucide-react'
 
 /**
@@ -32,9 +31,13 @@ export default function Sidebar({
   const filteredFeeds = filterFeeds(feeds)
 
   // 计算总未读数 - 只计算每个feed的未读数，不包含分类的未读数（避免重复相加）
-  const totalUnread = Object.entries(unreadCounts)
-    .filter(([key]) => key.includes('-'))
-    .reduce((sum, [, count]) => sum + count, 0)
+  const totalUnread = feeds.reduce((total, category) => {
+    const categoryFeedUnread = category.feeds.reduce((sum, feed) => {
+      const feedKey = `${category.category}-${feed.xmlUrl}`
+      return sum + (unreadCounts[feedKey] || 0)
+    }, 0)
+    return total + categoryFeedUnread
+  }, 0)
 
   return (
     <aside className="sidebar w-64 overflow-y-auto shrink-0" style={{ borderRight: '1px solid var(--border-color)' }}>

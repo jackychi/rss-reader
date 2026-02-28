@@ -23,7 +23,7 @@ export function useRSSFetcher() {
   }, [])
 
   // 单个订阅源获取（带重试机制）
-  const fetchFeed = useCallback(async (feed, retryCount = 0) => {
+  const fetchFeed = useCallback(async function fetchFeedWithRetry(feed, retryCount = 0) {
     const isXgoIng = feed.xmlUrl.includes('api.xgo.ing')
     const rsshubBase = 'https://rsshub-eta-topaz-88.vercel.app'
 
@@ -144,7 +144,7 @@ export function useRSSFetcher() {
           feedUrl: feed.xmlUrl,
         }))
         break
-      } catch (e) {
+      } catch {
         continue
       }
     }
@@ -156,7 +156,7 @@ export function useRSSFetcher() {
     // 重试机制
     if (retryCount < MAX_RETRIES) {
       await new Promise(resolve => setTimeout(resolve, RETRY_DELAY))
-      return fetchFeed(feed, retryCount + 1)
+      return fetchFeedWithRetry(feed, retryCount + 1)
     }
 
     throw new Error('All proxies failed')
@@ -165,7 +165,7 @@ export function useRSSFetcher() {
   // 批量获取所有订阅源
   const fetchAllFeeds = useCallback(async (feedList, currentRequestId) => {
     if (currentRequestId !== requestIdRef.current) {
-      return
+      return []
     }
 
     setLoading(true)
@@ -179,14 +179,16 @@ export function useRSSFetcher() {
 
     for (let i = 0; i < total; i += BATCH_SIZE) {
       if (currentRequestId !== requestIdRef.current) {
-        return
+        setLoading(false)
+        return []
       }
 
       const batch = feedList.slice(i, i + BATCH_SIZE)
       const batchResults = await Promise.allSettled(batch.map(feed => fetchFeed(feed)))
 
       if (currentRequestId !== requestIdRef.current) {
-        return
+        setLoading(false)
+        return []
       }
 
       // 处理部分失败
@@ -217,7 +219,8 @@ export function useRSSFetcher() {
     }
 
     if (currentRequestId !== requestIdRef.current) {
-      return
+      setLoading(false)
+      return []
     }
 
     const errors = results.length < total ? `${total - results.length} feed(s) failed to load` : null
@@ -231,6 +234,7 @@ export function useRSSFetcher() {
 
     setArticles(allArticles)
     setLoading(false)
+    return allArticles
   }, [fetchFeed])
 
   // 创建新的请求

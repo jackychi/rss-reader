@@ -14,14 +14,14 @@ const localStorageMock = {
   removeItem: vi.fn(),
   clear: vi.fn()
 }
-global.localStorage = localStorageMock
+globalThis.localStorage = localStorageMock
 
 // Mock fetch
-global.fetch = vi.fn()
+globalThis.fetch = vi.fn()
 
 // Mock DOMParser
-global.DOMParser = class DOMParser {
-  parseFromString(str, contentType) {
+globalThis.DOMParser = class DOMParser {
+  parseFromString() {
     return {
       querySelector: () => null,
       querySelectorAll: () => [],

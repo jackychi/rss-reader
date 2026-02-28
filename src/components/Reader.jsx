@@ -9,13 +9,11 @@ import { zhCN } from 'date-fns/locale'
  */
 export default function Reader({
   selectedArticle,
-  readerVisible,
   onClose,
   showOriginal,
   onToggleOriginal,
   getArticleContent,
   getArticleAudio,
-  formatDate,
   fontSize,
   onFontSizeChange,
   initialReadPosition = 0,
@@ -26,7 +24,7 @@ export default function Reader({
   onToggleFullscreen
 }) {
   const [isPlaying, setIsPlaying] = useState(false)
-  const [audioProgress, setAudioProgress] = useState(0)
+  const [audioProgress, setAudioProgress] = useState(initialAudioPosition)
   const [audioDuration, setAudioDuration] = useState(0)
   const [playbackRate, setPlaybackRate] = useState(1)
   const audioRef = useRef(null)
@@ -44,16 +42,7 @@ export default function Reader({
         }
       }, 100)
     }
-  }, [selectedArticle?.guid])
-
-  // 清理音频状态并恢复播放位置
-  useEffect(() => {
-    setIsPlaying(false)
-    setAudioProgress(initialAudioPosition)
-    setAudioDuration(0)
-    setPlaybackRate(1)
-    lastSavedTimeRef.current = 0  // 重置记录时间
-  }, [selectedArticle?.guid])
+  }, [selectedArticle?.guid, initialReadPosition])
 
   // 恢复音频播放位置
   useEffect(() => {
@@ -150,12 +139,12 @@ export default function Reader({
   const parseChapters = (content) => {
     if (!content) return []
     // 先去除HTML标签
-    const plainText = stripHtml(content)
+    const plainText = stripHtml(content).replace(/\r\n/g, '\n')
     const chapterRegex = /\[?(\d{1,2}):(\d{2})(?::(\d{2}))?\]?/g
     const chapters = []
-    let match
+    const matches = Array.from(plainText.matchAll(chapterRegex))
 
-    while ((match = chapterRegex.exec(plainText)) !== null) {
+    matches.forEach((match, index) => {
       const hours = parseInt(match[1], 10)
       const minutes = parseInt(match[2], 10)
       const seconds = match[3] ? parseInt(match[3], 10) : 0
@@ -171,17 +160,22 @@ export default function Reader({
         totalSeconds = hours * 60 + minutes
       }
 
-      // 获取时间戳后面的文字作为章节标题
-      const afterMatch = plainText.substring(match.index + match[0].length).trim()
-      const titleMatch = afterMatch.match(/^[\s\-\.\:]*([^\n]{1,60})/)
-      const title = titleMatch ? titleMatch[1].replace(/^[\s\-\.\:]+/, '').trim() : ''
+      // 标题只取“当前时间戳之后，到下一个时间戳之前”的片段
+      const currentEnd = (match.index ?? 0) + match[0].length
+      const nextStart = matches[index + 1]?.index ?? plainText.length
+      const rawTitle = plainText
+        .slice(currentEnd, nextStart)
+        .replace(/\s+/g, ' ')
+        .replace(/^[\s\-.:，,|]+/, '')
+        .trim()
+      const title = rawTitle.slice(0, 60)
 
       chapters.push({
         time: totalSeconds,
-        label: match[0].replace(/[\[\]]/g, ''),
+        label: match[0].replace(/\[|\]/g, ''),
         title: title || '章节 ' + (chapters.length + 1)
       })
-    }
+    })
 
     // 去重并按时间排序
     const uniqueChapters = chapters.filter((c, i, arr) =>
@@ -501,7 +495,7 @@ export default function Reader({
                         display: 'flex',
                         flexDirection: 'column',
                         gap: '2px',
-                        maxHeight: '200px',
+                        maxHeight: '340px',
                         overflowY: 'auto',
                       }}>
                         {chapters.map((chapter, index) => (

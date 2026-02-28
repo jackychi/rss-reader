@@ -8,7 +8,7 @@ import { defaultFeeds } from './data/defaultFeeds'
 import { useLocalStorage } from './hooks/useLocalStorage'
 import { useRSSFetcher } from './hooks/useRSSFetcher'
 import { useOnlineStatus } from './hooks/useOnlineStatus'
-import { saveArticles, getArticles, getAllReadStatus, clearExpiredCache } from './utils/db'
+import { saveArticles, getArticles, clearExpiredCache } from './utils/db'
 import Header from './components/Header'
 import Sidebar from './components/Sidebar'
 import ArticleList from './components/ArticleList'
@@ -97,11 +97,9 @@ function App() {
         return initialExpanded
       })
     }
-  }, [feeds])
+  }, [feeds, setExpandedCategories])
 
   // ============ 初始化 IndexedDB 缓存 ============
-  const [offlineReady, setOfflineReady] = useState(false)
-
   useEffect(() => {
     // 尝试加载缓存的文章
     const loadCachedArticles = async () => {
@@ -110,7 +108,6 @@ function App() {
         if (cachedArticles.length > 0) {
           console.log('[App] Loaded', cachedArticles.length, 'cached articles')
           setArticles(cachedArticles)
-          setOfflineReady(true)
         }
         // 清理过期缓存
         await clearExpiredCache()
@@ -119,14 +116,14 @@ function App() {
       }
     }
     loadCachedArticles()
-  }, [])
+  }, [setArticles])
 
   // ============ 启动时自动获取RSS源 ============
-  const [initialLoadDone, setInitialLoadDone] = useState(false)
+  const initialLoadDoneRef = useRef(false)
 
   useEffect(() => {
-    if (initialLoadDone || !isOnline) return
-    setInitialLoadDone(true)
+    if (initialLoadDoneRef.current || !isOnline) return
+    initialLoadDoneRef.current = true
 
     const fetchInitialFeeds = async () => {
       const currentId = createRequest()
@@ -137,7 +134,7 @@ function App() {
     }
 
     fetchInitialFeeds()
-  }, [feeds, createRequest, fetchAllFeeds, isOnline, initialLoadDone])
+  }, [feeds, createRequest, fetchAllFeeds, isOnline])
 
   // ============ 主题处理 ============
   useEffect(() => {
@@ -277,7 +274,7 @@ function App() {
   }, [])
 
   // ============ 事件处理 ============
-  const handleSelectFeed = useCallback(async (category, feed) => {
+  const handleSelectFeed = useCallback(async (_category, feed) => {
     const currentId = createRequest()
     requestIdRef.current = currentId
     setSelectedFeed(feed)
@@ -306,12 +303,23 @@ function App() {
     const CACHE_TTL = 5 * 60 * 1000 // 5分钟缓存
 
     if (cached && cacheAge < CACHE_TTL) {
-      // 使用缓存
+      // 命中本地缓存
       console.log('Using cached articles for:', feed.title)
+      setArticles(cached.articles || [])
+      return
     }
 
-    await fetchAllFeeds([feed], currentId)
-  }, [createRequest, fetchAllFeeds, articleCache, isOnline, setArticles])
+    const fetchedArticles = await fetchAllFeeds([feed], currentId)
+    if (fetchedArticles.length > 0) {
+      setArticleCache(prev => ({
+        ...prev,
+        [cacheKey]: {
+          timestamp: Date.now(),
+          articles: fetchedArticles,
+        }
+      }))
+    }
+  }, [createRequest, fetchAllFeeds, articleCache, isOnline, setArticles, setArticleCache])
 
   const handleSelectAll = useCallback(async () => {
     const currentId = createRequest()
@@ -527,14 +535,13 @@ function App() {
         {/* Reader */}
         {readerVisible && (
           <Reader
+            key={selectedArticle ? `${selectedArticle.feedUrl}-${selectedArticle.guid || selectedArticle.link}` : 'reader-empty'}
             selectedArticle={selectedArticle}
-            readerVisible={readerVisible}
             onClose={closeReader}
             showOriginal={showOriginal}
             onToggleOriginal={toggleOriginal}
             getArticleContent={getArticleContent}
             getArticleAudio={getArticleAudio}
-            formatDate={formatDate}
             fontSize={fontSize}
             isFullscreen={isFullscreen}
             onToggleFullscreen={toggleFullscreen}

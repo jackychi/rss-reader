@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 
 /**
  * 本地存储 Hook - 管理数据的持久化
@@ -19,15 +19,18 @@ export function useLocalStorage(key, initialValue) {
 
   // 更新 localStorage 的包装函数
   const setValue = useCallback((value) => {
-    try {
-      // 支持函数形式的值（如 setState）
-      const valueToStore = value instanceof Function ? value(storedValue) : value
-      setStoredValue(valueToStore)
-      localStorage.setItem(key, JSON.stringify(valueToStore))
-    } catch (error) {
-      console.error(`Error setting localStorage key "${key}":`, error)
-    }
-  }, [key, storedValue])
+    setStoredValue((prevValue) => {
+      try {
+        // 支持函数形式的值（如 setState）
+        const valueToStore = value instanceof Function ? value(prevValue) : value
+        localStorage.setItem(key, JSON.stringify(valueToStore))
+        return valueToStore
+      } catch (error) {
+        console.error(`Error setting localStorage key "${key}":`, error)
+        return prevValue
+      }
+    })
+  }, [key])
 
   return [storedValue, setValue]
 }

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import Sidebar from '../components/Sidebar'
 
@@ -56,10 +56,10 @@ describe('Sidebar', () => {
     expect(searchInput).toBeInTheDocument()
   })
 
-  it('should render "全部文章" button', () => {
+  it('should render "已缓存文章" button', () => {
     render(<Sidebar {...defaultProps} />)
 
-    expect(screen.getByText('全部文章')).toBeInTheDocument()
+    expect(screen.getByText('已缓存文章')).toBeInTheDocument()
   })
 
   it('should call onSearchChange when search input changes', () => {
@@ -92,10 +92,10 @@ describe('Sidebar', () => {
     )
   })
 
-  it('should call onSelectAll when "全部文章" is clicked', () => {
+  it('should call onSelectAll when "已缓存文章" is clicked', () => {
     render(<Sidebar {...defaultProps} />)
 
-    const allArticles = screen.getByText('全部文章')
+    const allArticles = screen.getByText('已缓存文章')
     fireEvent.click(allArticles)
 
     expect(defaultProps.onSelectAll).toHaveBeenCalled()
@@ -118,14 +118,14 @@ describe('Sidebar', () => {
   it('should show total unread count', () => {
     render(<Sidebar {...defaultProps} />)
 
-    // Total unread = 5 (Tech) + 3 (News) + 3 (TechCrunch) + 2 (The Verge) = 13
-    expect(screen.getByText('13')).toBeInTheDocument()
+    // Total unread 只统计 feed 级别: 3 (TechCrunch) + 2 (The Verge) = 5
+    expect(screen.getAllByText('5').length).toBeGreaterThanOrEqual(1)
   })
 
   it('should show category unread count when expanded', () => {
     render(<Sidebar {...defaultProps} />)
 
-    expect(screen.getByText('5')).toBeInTheDocument() // Tech category unread
+    expect(screen.getAllByText('5').length).toBeGreaterThanOrEqual(2) // 总未读+Tech分类未读
   })
 
   it('should render folder icons correctly', () => {

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState } from 'react'
 import { FileText, Loader2, AlertCircle, Search } from 'lucide-react'
 
 /**
@@ -20,9 +20,6 @@ export default function ArticleList({
 }) {
   // 搜索框显示状态
   const [showSearch, setShowSearch] = useState(false)
-
-  // 过滤后的文章数
-  const articleCount = useMemo(() => articles.length, [articles])
 
   return (
     <main className="article-list w-[380px] flex flex-col overflow-hidden shrink-0">
@@ -121,10 +118,10 @@ export default function ArticleList({
             }</p>
           </div>
         ) : (
-          articles.map((article, idx) => {
+          articles.map((article) => {
             // 生成文章唯一标识（与 readStatus 存储格式一致，不含 idx）
             const articleKey = `${article.feedUrl}-${article.guid || article.link}`
-            const isUnread = !unreadArticles.has(articleKey)
+            const isUnread = unreadArticles.has(articleKey)
 
             // 检查文章是否匹配搜索（高亮显示）
             const isMatch = searchQuery && (
