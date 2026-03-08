@@ -26,6 +26,20 @@ const STORAGE_KEYS = {
   ARTICLE_CACHE: 'rss-reader-article-cache',
 }
 
+function toParagraphHtml(text) {
+  const escapeHtml = (input) => input
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+
+  return text
+    .split(/\n{2,}/)
+    .map((block) => `<p>${escapeHtml(block).replace(/\n/g, '<br />')}</p>`)
+    .join('')
+}
+
 function App() {
   // ============ 状态管理 ============
   // 订阅源 - 持久化
@@ -247,6 +261,9 @@ function App() {
     }
     if (article.content) {
       let content = article.content
+      if (!/<[a-z][\s\S]*>/i.test(content) && content.includes('\n')) {
+        content = toParagraphHtml(content)
+      }
       content = content.replace(/<a([^>]*)>/g, '<a$1 target="_blank" rel="noopener noreferrer">')
       return DOMPurify.sanitize(content, sanitizeOptions)
     }

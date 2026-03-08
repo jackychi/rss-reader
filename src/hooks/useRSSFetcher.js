@@ -10,6 +10,23 @@ const BATCH_DELAY = 300
 const MAX_RETRIES = 2
 const RETRY_DELAY = 1000
 
+function buildContentSnippet(content = '') {
+  return content
+    .replace(/<[^>]*>/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 200)
+}
+
+function extractArticleContent(item) {
+  const encodedByTag = item.getElementsByTagName('content:encoded')[0]?.textContent
+  const itunesSummary = item.getElementsByTagName('itunes:summary')[0]?.textContent
+  const encodedBySelector = item.querySelector('content\\:encoded, content')?.textContent
+  const description = item.querySelector('description, summary')?.textContent
+
+  return (encodedByTag || itunesSummary || encodedBySelector || description || '').trim()
+}
+
 export function useRSSFetcher() {
   const [loading, setLoading] = useState(false)
   const [articles, setArticles] = useState([])
@@ -86,11 +103,13 @@ export function useRSSFetcher() {
               type: enclosureEl.getAttribute('type'),
               length: enclosureEl.getAttribute('length')
             } : null
+            const content = extractArticleContent(item)
+
             return {
               title: item.querySelector('title')?.textContent || '',
               link: item.querySelector('link')?.textContent || item.querySelector('link')?.getAttribute('href') || '',
-              content: item.querySelector('content\\:encoded, content, description, summary')?.textContent || '',
-              contentSnippet: item.querySelector('content\\:encoded, content, description, summary')?.textContent?.replace(/<[^>]*>/g, '').slice(0, 200) || '',
+              content,
+              contentSnippet: buildContentSnippet(content),
               pubDate: item.querySelector('pubDate, published, updated')?.textContent || new Date().toISOString(),
               isoDate: item.querySelector('pubDate, published, updated')?.textContent || new Date().toISOString(),
               guid: item.querySelector('id')?.textContent || item.querySelector('link')?.textContent || '',
@@ -117,7 +136,7 @@ export function useRSSFetcher() {
         const articles = Array.from(items).map(item => {
           const titleEl = item.querySelector('title')?.textContent || ''
           const linkEl = item.querySelector('link')?.textContent || item.querySelector('link')?.getAttribute('href') || ''
-          const fullContentEl = item.querySelector('content\\:encoded, content')?.textContent || item.querySelector('description, summary')?.textContent || ''
+          const fullContentEl = extractArticleContent(item)
           const dateEl = item.querySelector('pubDate, published, updated')?.textContent || new Date().toISOString()
           const enclosureEl = item.getElementsByTagName('enclosure')[0]
           const enclosure = enclosureEl ? {
@@ -130,7 +149,7 @@ export function useRSSFetcher() {
             title: titleEl,
             link: linkEl,
             content: fullContentEl,
-            contentSnippet: fullContentEl.replace(/<[^>]*>/g, '').slice(0, 200),
+            contentSnippet: buildContentSnippet(fullContentEl),
             pubDate: dateEl,
             isoDate: dateEl,
             guid: item.querySelector('id')?.textContent || linkEl,
