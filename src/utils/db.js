@@ -8,7 +8,7 @@
  */
 
 const DB_NAME = 'CatReaderDB'
-const DB_VERSION = 1
+const DB_VERSION = 2
 
 // 打开数据库
 export function openDB() {
@@ -44,6 +44,12 @@ export function openDB() {
       // 创建已读状态存储
       if (!db.objectStoreNames.contains('readStatus')) {
         db.createObjectStore('readStatus', { keyPath: 'articleKey' })
+      }
+
+      // 创建阅读列表存储
+      if (!db.objectStoreNames.contains('readingList')) {
+        const readingListStore = db.createObjectStore('readingList', { keyPath: 'id' })
+        readingListStore.createIndex('savedAt', 'savedAt', { unique: false })
       }
     }
   })
@@ -212,6 +218,91 @@ export async function getAllReadStatus() {
   }
 }
 
+// 保存文章到阅读列表
+export async function saveToReadingList(article) {
+  try {
+    const db = await openDB()
+    const tx = db.transaction('readingList', 'readwrite')
+    const store = tx.objectStore('readingList')
+
+    store.put({
+      id: `${article.feedUrl}-${article.guid || article.link}`,
+      ...article,
+      savedAt: Date.now(),
+    })
+
+    return new Promise((resolve, reject) => {
+      tx.oncomplete = () => resolve(true)
+      tx.onerror = () => reject(tx.error)
+    })
+  } catch (error) {
+    console.error('[DB] Failed to save to reading list:', error)
+    return false
+  }
+}
+
+// 从阅读列表移除文章
+export async function removeFromReadingList(articleId) {
+  try {
+    const db = await openDB()
+    const tx = db.transaction('readingList', 'readwrite')
+    const store = tx.objectStore('readingList')
+
+    store.delete(articleId)
+
+    return new Promise((resolve, reject) => {
+      tx.oncomplete = () => resolve(true)
+      tx.onerror = () => reject(tx.error)
+    })
+  } catch (error) {
+    console.error('[DB] Failed to remove from reading list:', error)
+    return false
+  }
+}
+
+// 获取阅读列表所有文章
+export async function getReadingList() {
+  try {
+    const db = await openDB()
+    const tx = db.transaction('readingList', 'readonly')
+    const store = tx.objectStore('readingList')
+
+    return new Promise((resolve, reject) => {
+      const request = store.getAll()
+
+      request.onsuccess = () => {
+        const articles = request.result || []
+        // 按保存时间倒序排列
+        articles.sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0))
+        resolve(articles)
+      }
+
+      request.onerror = () => reject(request.error)
+    })
+  } catch (error) {
+    console.error('[DB] Failed to get reading list:', error)
+    return []
+  }
+}
+
+// 检查文章是否在阅读列表中
+export async function isInReadingList(articleId) {
+  try {
+    const db = await openDB()
+    const tx = db.transaction('readingList', 'readonly')
+    const store = tx.objectStore('readingList')
+
+    return new Promise((resolve, reject) => {
+      const request = store.get(articleId)
+      request.onsuccess = () => resolve(!!request.result)
+      request.onerror = () => reject(request.error)
+    })
+  } catch (error) {
+    console.error('[DB] Failed to check reading list:', error)
+    return false
+  }
+}
+
 // 清理过期缓存（超过 7 天）
 export async function clearExpiredCache() {
   try {
@@ -258,5 +349,9 @@ export default {
   saveReadStatus,
   getReadStatus,
   getAllReadStatus,
+  saveToReadingList,
+  removeFromReadingList,
+  getReadingList,
+  isInReadingList,
   clearExpiredCache,
 }

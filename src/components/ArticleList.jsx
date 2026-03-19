@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { FileText, Loader2, AlertCircle, Search } from 'lucide-react'
+import { FileText, Loader2, AlertCircle, Search, RefreshCw, CheckCheck } from 'lucide-react'
 
 /**
  * ArticleList 组件 - 中间文章列表
@@ -16,7 +16,10 @@ export default function ArticleList({
   getArticleImage,
   formatDate,
   searchQuery,
-  onSearchChange
+  onSearchChange,
+  onMarkAllAsRead,
+  onRefresh,
+  isRefreshing
 }) {
   // 搜索框显示状态
   const [showSearch, setShowSearch] = useState(false)
@@ -25,7 +28,7 @@ export default function ArticleList({
     <main className="article-list w-[380px] flex flex-col overflow-hidden shrink-0">
       <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-color)', backgroundColor: 'var(--bg-tertiary)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div>
+          <div style={{ minWidth: 0, flex: 1 }}>
             <h2 style={{ fontWeight: 600, fontSize: '14px', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {selectedFeed?.title || 'All Articles'}
             </h2>
@@ -33,22 +36,60 @@ export default function ArticleList({
               {unreadArticles.size > 0 ? `${unreadArticles.size} 未读` : '已全部读完'}
             </p>
           </div>
-          <button
-            onClick={() => setShowSearch(!showSearch)}
-            style={{
-              padding: '6px',
-              borderRadius: '6px',
-              backgroundColor: showSearch ? 'var(--accent-color)' : 'transparent',
-              border: 'none',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-            title="搜索文章"
-          >
-            <Search size={16} style={{ color: showSearch ? '#fff' : 'var(--text-secondary)' }} />
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+            <button
+              onClick={() => setShowSearch(!showSearch)}
+              style={{
+                padding: '6px',
+                borderRadius: '6px',
+                backgroundColor: showSearch ? 'var(--accent-color)' : 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+              title="搜索文章"
+            >
+              <Search size={16} style={{ color: showSearch ? '#fff' : 'var(--text-secondary)' }} />
+            </button>
+            <button
+              onClick={onRefresh}
+              disabled={!selectedFeed || selectedFeed.xmlUrl === 'cached' || isRefreshing || loading}
+              style={{
+                padding: '6px',
+                borderRadius: '6px',
+                backgroundColor: 'transparent',
+                border: 'none',
+                cursor: (!selectedFeed || selectedFeed.xmlUrl === 'cached' || isRefreshing || loading) ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                opacity: (!selectedFeed || selectedFeed.xmlUrl === 'cached' || isRefreshing || loading) ? 0.4 : 1,
+              }}
+              title="刷新"
+            >
+              <RefreshCw size={16} style={{ color: 'var(--text-secondary)', animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }} />
+            </button>
+            <button
+              onClick={onMarkAllAsRead}
+              disabled={!selectedFeed || articles.length === 0}
+              style={{
+                padding: '6px',
+                borderRadius: '6px',
+                backgroundColor: 'transparent',
+                border: 'none',
+                cursor: (!selectedFeed || articles.length === 0) ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                opacity: (!selectedFeed || articles.length === 0) ? 0.4 : 1,
+              }}
+              title="全部已读"
+            >
+              <CheckCheck size={16} style={{ color: 'var(--text-secondary)' }} />
+            </button>
+          </div>
         </div>
 
         {/* 文章搜索框 */}
@@ -123,6 +164,10 @@ export default function ArticleList({
             const articleKey = `${article.feedUrl}-${article.guid || article.link}`
             const isUnread = unreadArticles.has(articleKey)
 
+            // 计算当前选中文章的唯一标识
+            const selectedKey = selectedArticle ? `${selectedArticle.feedUrl}-${selectedArticle.guid || selectedArticle.link}` : null
+            const isSelected = articleKey === selectedKey
+
             // 检查文章是否匹配搜索（高亮显示）
             const isMatch = searchQuery && (
               article.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -137,15 +182,13 @@ export default function ArticleList({
                   padding: '14px 16px',
                   borderBottom: '1px solid var(--border-color)',
                   cursor: 'pointer',
-                  backgroundColor: selectedArticle?.guid === article.guid ? 'var(--bg-secondary)' : 'transparent',
+                  backgroundColor: isSelected ? 'var(--bg-tertiary)' : 'transparent',
                   borderLeft: isMatch ? '3px solid var(--accent-color)' : 'none',
                   transition: 'background-color 0.15s ease'
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-secondary)'}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = isSelected ? 'var(--bg-tertiary)' : 'var(--bg-secondary)'}
                 onMouseLeave={(e) => {
-                  if (selectedArticle?.guid !== article.guid) {
-                    e.currentTarget.style.backgroundColor = 'transparent'
-                  }
+                  e.currentTarget.style.backgroundColor = isSelected ? 'var(--bg-tertiary)' : 'transparent'
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { X, ChevronRight, ExternalLink, FileText, Play, Pause, Download, Maximize2, Minimize2 } from 'lucide-react'
+import { X, ChevronRight, ExternalLink, FileText, Play, Pause, Download, Maximize2, Minimize2, Bookmark, BookmarkCheck } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 
@@ -21,7 +21,9 @@ export default function Reader({
   onUpdateReadPosition,
   onUpdateAudioPosition,
   isFullscreen = false,
-  onToggleFullscreen
+  onToggleFullscreen,
+  isInReadingList = false,
+  onToggleReadingList
 }) {
   const [isPlaying, setIsPlaying] = useState(false)
   const [audioProgress, setAudioProgress] = useState(initialAudioPosition)
@@ -273,6 +275,24 @@ export default function Reader({
                 title={isFullscreen ? "退出全屏" : "全屏阅读"}
               >
                 {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+              </button>
+              {/* 阅读列表按钮 */}
+              <button
+                onClick={onToggleReadingList}
+                style={{
+                  padding: '6px',
+                  borderRadius: '4px',
+                  border: '1px solid var(--border-color)',
+                  backgroundColor: isInReadingList ? 'var(--accent-color)' : 'var(--bg-tertiary)',
+                  color: isInReadingList ? '#ffffff' : 'var(--text-secondary)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+                title={isInReadingList ? "从阅读列表移除" : "添加到阅读列表"}
+              >
+                {isInReadingList ? <BookmarkCheck size={16} /> : <Bookmark size={16} />}
               </button>
               <a
                 href={selectedArticle.link}

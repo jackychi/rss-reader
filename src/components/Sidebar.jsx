@@ -1,4 +1,4 @@
-import { Rss, ChevronRight, ChevronDown, Folder, FolderOpen, FileText, Search } from 'lucide-react'
+import { Rss, ChevronRight, ChevronDown, Folder, FolderOpen, FileText, Search, Bookmark } from 'lucide-react'
 
 /**
  * Sidebar 组件 - 左侧订阅源导航
@@ -13,7 +13,10 @@ export default function Sidebar({
   onSelectAll,
   searchQuery,
   onSearchChange,
-  unreadCounts
+  unreadCounts,
+  readingListCount = 0,
+  showReadingList = false,
+  onToggleReadingList
 }) {
   // 过滤订阅源
   const filterFeeds = (feeds) => {
@@ -88,7 +91,7 @@ export default function Sidebar({
       <div style={{ padding: '0 12px 12px' }}>
         <div
           onClick={onSelectAll}
-          className={`sidebar-item ${!selectedFeed || selectedFeed.xmlUrl === 'cached' ? 'active' : ''}`}
+          className={`sidebar-item ${(selectedFeed?.xmlUrl === 'cached') || (!selectedFeed && !showReadingList) ? 'active' : ''}`}
           style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderRadius: '6px' }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -105,6 +108,32 @@ export default function Sidebar({
               fontWeight: 600
             }}>
               {totalUnread}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* 阅读列表 */}
+      <div style={{ padding: '0 12px 12px' }}>
+        <div
+          onClick={onToggleReadingList}
+          className={`sidebar-item ${showReadingList ? 'active' : ''}`}
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderRadius: '6px' }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Bookmark size={16} />
+            <span>阅读列表</span>
+          </div>
+          {readingListCount > 0 && (
+            <span style={{
+              backgroundColor: 'var(--accent-color)',
+              color: '#fff',
+              fontSize: '10px',
+              padding: '2px 6px',
+              borderRadius: '10px',
+              fontWeight: 600
+            }}>
+              {readingListCount}
             </span>
           )}
         </div>

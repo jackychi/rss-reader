@@ -8,11 +8,12 @@ import { defaultFeeds } from './data/defaultFeeds'
 import { useLocalStorage } from './hooks/useLocalStorage'
 import { useRSSFetcher } from './hooks/useRSSFetcher'
 import { useOnlineStatus } from './hooks/useOnlineStatus'
-import { saveArticles, getArticles, clearExpiredCache } from './utils/db'
+import { saveArticles, getArticles, clearExpiredCache, saveToReadingList, removeFromReadingList, getReadingList } from './utils/db'
 import Header from './components/Header'
 import Sidebar from './components/Sidebar'
 import ArticleList from './components/ArticleList'
 import Reader from './components/Reader'
+import ReadingList from './components/ReadingList'
 
 // 常量
 const STORAGE_KEYS = {
@@ -69,6 +70,22 @@ function App() {
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [articleSearchQuery, setArticleSearchQuery] = useState('')
+  // 阅读列表状态
+  const [readingList, setReadingList] = useState([])
+  const [showReadingList, setShowReadingList] = useState(false)
+
+  // 切换阅读列表视图
+  const handleToggleReadingList = useCallback(() => {
+    if (showReadingList) {
+      // 当前在阅读列表，退出
+      setShowReadingList(false)
+    } else {
+      // 进入阅读列表，清空订阅源选中状态
+      setSelectedFeed(null)
+      setSelectedArticle(null)
+      setShowReadingList(true)
+    }
+  }, [showReadingList])
 
   // 使用 RSS Fetcher Hook
   const { loading, articles, error, progress, fetchAllFeeds, createRequest, searchArticles, setArticles } = useRSSFetcher()
@@ -131,6 +148,20 @@ function App() {
     }
     loadCachedArticles()
   }, [setArticles])
+
+  // ============ 加载阅读列表 ============
+  const loadReadingList = useCallback(async () => {
+    try {
+      const list = await getReadingList()
+      setReadingList(list)
+    } catch (error) {
+      console.error('[App] Failed to load reading list:', error)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadReadingList()
+  }, [loadReadingList])
 
   // ============ 启动时自动获取RSS源 ============
   const initialLoadDoneRef = useRef(false)
@@ -297,6 +328,7 @@ function App() {
     setSelectedFeed(feed)
     setSelectedArticle(null)
     setShowOriginal(false)
+    setShowReadingList(false) // 切换订阅源时退出阅读列表视图
     setArticleSearchQuery('') // 切换订阅源时清除文章搜索
     setIsFullscreen(false) // 切换订阅源时退出全屏模式
 
@@ -344,6 +376,7 @@ function App() {
     setSelectedFeed({ title: '已缓存文章', xmlUrl: 'cached' })
     setSelectedArticle(null)
     setShowOriginal(false)
+    setShowReadingList(false) // 切换到已缓存文章时退出阅读列表视图
     setArticleSearchQuery('')
     setIsFullscreen(false) // 切换到已缓存文章时退出全屏模式
 
@@ -380,6 +413,80 @@ function App() {
     }
     setIsRefreshing(false)
   }, [selectedFeed, createRequest, fetchAllFeeds, setArticles])
+
+  // 标记所有当前订阅源的文章为已读
+  const handleMarkAllAsRead = useCallback(() => {
+    // 使用 allCachedArticles 而不是 articles，因为 articles 可能经过筛选
+    const articlesToMark = allCachedArticles.length > 0 ? allCachedArticles : articles
+    if (!articlesToMark || articlesToMark.length === 0) return
+
+    // 如果 selectedFeed 是 'cached'，直接使用 allCachedArticles
+    // 否则只标记当前订阅源的文章
+    const targetArticles = selectedFeed?.xmlUrl === 'cached'
+      ? articlesToMark
+      : articlesToMark.filter(a => a.feedUrl === selectedFeed?.xmlUrl)
+
+    setReadStatus(prev => {
+      const updated = { ...prev }
+      targetArticles.forEach(article => {
+        const key = `${article.feedUrl}-${article.guid || article.link}`
+        updated[key] = true
+      })
+      return updated
+    })
+  }, [allCachedArticles, articles, selectedFeed, setReadStatus])
+
+  // 切换文章书签状态
+  const handleToggleArticleBookmark = useCallback(async () => {
+    if (!selectedArticle) return
+
+    const articleKey = `${selectedArticle.feedUrl}-${selectedArticle.guid || selectedArticle.link}`
+    const isCurrentlyInList = readingList.some(a =>
+      `${a.feedUrl}-${a.guid || a.link}` === articleKey
+    )
+
+    if (isCurrentlyInList) {
+      await removeFromReadingList(articleKey)
+      setReadingList(prev => prev.filter(a =>
+        `${a.feedUrl}-${a.guid || a.link}` !== articleKey
+      ))
+    } else {
+      await saveToReadingList(selectedArticle)
+      setReadingList(prev => [selectedArticle, ...prev])
+    }
+  }, [selectedArticle, readingList])
+
+  // 检查文章是否在阅读列表中
+  const isArticleInReadingList = useCallback(() => {
+    if (!selectedArticle) return false
+    const articleKey = `${selectedArticle.feedUrl}-${selectedArticle.guid || selectedArticle.link}`
+    return readingList.some(a =>
+      `${a.feedUrl}-${a.guid || a.link}` === articleKey
+    )
+  }, [selectedArticle, readingList])
+
+  // 从阅读列表移除文章
+  const handleRemoveFromReadingList = useCallback(async (articleKey) => {
+    await removeFromReadingList(articleKey)
+    setReadingList(prev => prev.filter(a =>
+      `${a.feedUrl}-${a.guid || a.link}` !== articleKey
+    ))
+  }, [])
+
+  // 在阅读列表中选择文章
+  const handleSelectFromReadingList = useCallback((article) => {
+    setSelectedArticle(article)
+    setShowOriginal(false)
+    setReaderVisible(true)
+    // 不退出阅读列表视图，不切换到频道
+
+    // 标记为已读
+    const articleKey = `${article.feedUrl}-${article.guid || article.link}`
+    setReadStatus(prev => ({
+      ...prev,
+      [articleKey]: true
+    }))
+  }, [setReadStatus])
 
   const handleImportOPML = useCallback(async (event) => {
     const file = event.target.files[0]
@@ -529,11 +636,26 @@ function App() {
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
             unreadCounts={unreadCounts}
+            readingListCount={readingList.length}
+            showReadingList={showReadingList}
+            onToggleReadingList={handleToggleReadingList}
           />
         )}
 
-        {/* Article List - 全屏模式下隐藏 */}
-        {!isFullscreen && (
+        {/* Reading List - 全屏模式下隐藏 */}
+        {!isFullscreen && showReadingList && (
+          <ReadingList
+            articles={readingList}
+            onSelectArticle={handleSelectFromReadingList}
+            onRemoveArticle={handleRemoveFromReadingList}
+            getArticleImage={getArticleImage}
+            formatDate={formatDate}
+            selectedArticle={selectedArticle}
+          />
+        )}
+
+        {/* Article List - 全屏模式下隐藏，且不在阅读列表视图时 */}
+        {!isFullscreen && !showReadingList && (
           <ArticleList
             articles={filteredArticles}
             selectedFeed={selectedFeed}
@@ -546,6 +668,9 @@ function App() {
             formatDate={formatDate}
             searchQuery={articleSearchQuery}
             onSearchChange={handleArticleSearchChange}
+            onMarkAllAsRead={handleMarkAllAsRead}
+            onRefresh={handleRefresh}
+            isRefreshing={isRefreshing}
           />
         )}
 
@@ -567,6 +692,8 @@ function App() {
             initialAudioPosition={selectedArticle ? getArticleAudioPosition(selectedArticle) : 0}
             onUpdateReadPosition={(position) => handleUpdateReadPosition(selectedArticle, position)}
             onUpdateAudioPosition={(position) => handleUpdateAudioPosition(selectedArticle, position)}
+            isInReadingList={isArticleInReadingList()}
+            onToggleReadingList={handleToggleArticleBookmark}
           />
         )}
       </div>
