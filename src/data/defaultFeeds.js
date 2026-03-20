@@ -210,7 +210,8 @@ export const defaultFeeds = [
   {
     category: "SocialMedia",
     feeds: [
-        { title: "Twitter @NotebookLM", xmlUrl: "https://rsshub-eta-topaz-88.vercel.app/twitter/user/NotebookLM" },
+      { title: "Twitter @NotebookLM", xmlUrl: "https://rsshub-eta-topaz-88.vercel.app/twitter/user/NotebookLM" },
+      { title: "Twitter @GoogleAIStudio", xmlUrl: "https://rsshub-eta-topaz-88.vercel.app/twitter/user/GoogleAIStudio" },
       { title: "Twitter @ilyasut", xmlUrl: "https://rsshub-eta-topaz-88.vercel.app/twitter/user/ilyasut" },
       { title: "Twitter @Karpathy", xmlUrl: "https://rsshub-eta-topaz-88.vercel.app/twitter/user/karpathy" },
       { title: "Twitter @OpenAI", xmlUrl: "https://rsshub-eta-topaz-88.vercel.app/twitter/user/OpenAI" },
