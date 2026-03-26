@@ -94,7 +94,6 @@ export const defaultFeeds = [
       { title: "keygen.sh", xmlUrl: "https://keygen.sh/blog/feed.xml" },
       { title: "mjg59.dreamwidth.org", xmlUrl: "https://mjg59.dreamwidth.org/data/rss" },
       { title: "computer.rip", xmlUrl: "https://computer.rip/rss.xml" },
-      { title: "tedunangst.com", xmlUrl: "https://www.tedunangst.com/flak/rss" },
     ]
   },
   {
