@@ -8,7 +8,7 @@
  */
 
 const DB_NAME = 'CatReaderDB'
-const DB_VERSION = 2
+const DB_VERSION = 3
 
 // 打开数据库
 export function openDB() {
@@ -50,6 +50,11 @@ export function openDB() {
       if (!db.objectStoreNames.contains('readingList')) {
         const readingListStore = db.createObjectStore('readingList', { keyPath: 'id' })
         readingListStore.createIndex('savedAt', 'savedAt', { unique: false })
+      }
+
+      // 创建 feed 元信息存储（记录每个 feed 的 lastFetchedAt，用于 5min TTL 热缓存）
+      if (!db.objectStoreNames.contains('feedMeta')) {
+        db.createObjectStore('feedMeta', { keyPath: 'feedUrl' })
       }
     }
   })
@@ -340,6 +345,43 @@ export async function clearExpiredCache() {
   }
 }
 
+// 保存 feed 的最近 fetch 时间（per-feed 5min TTL 热缓存依赖这个）
+export async function saveFeedMeta(feedUrl, lastFetchedAt = Date.now()) {
+  try {
+    const db = await openDB()
+    const tx = db.transaction('feedMeta', 'readwrite')
+    const store = tx.objectStore('feedMeta')
+
+    store.put({ feedUrl, lastFetchedAt })
+
+    return new Promise((resolve, reject) => {
+      tx.oncomplete = () => resolve(true)
+      tx.onerror = () => reject(tx.error)
+    })
+  } catch (error) {
+    console.error('[DB] Failed to save feed meta:', error)
+    return false
+  }
+}
+
+// 读取 feed 的最近 fetch 时间，未命中返回 null
+export async function getFeedMeta(feedUrl) {
+  try {
+    const db = await openDB()
+    const tx = db.transaction('feedMeta', 'readonly')
+    const store = tx.objectStore('feedMeta')
+
+    return new Promise((resolve, reject) => {
+      const request = store.get(feedUrl)
+      request.onsuccess = () => resolve(request.result || null)
+      request.onerror = () => reject(request.error)
+    })
+  } catch (error) {
+    console.error('[DB] Failed to get feed meta:', error)
+    return null
+  }
+}
+
 export default {
   openDB,
   saveArticles,
@@ -354,4 +396,6 @@ export default {
   getReadingList,
   isInReadingList,
   clearExpiredCache,
+  saveFeedMeta,
+  getFeedMeta,
 }

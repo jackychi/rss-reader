@@ -8,7 +8,7 @@ import { defaultFeeds } from './data/defaultFeeds'
 import { useLocalStorage } from './hooks/useLocalStorage'
 import { useRSSFetcher } from './hooks/useRSSFetcher'
 import { useOnlineStatus } from './hooks/useOnlineStatus'
-import { saveArticles, getArticles, clearExpiredCache, saveToReadingList, removeFromReadingList, getReadingList } from './utils/db'
+import { saveArticles, getArticles, clearExpiredCache, saveToReadingList, removeFromReadingList, getReadingList, saveFeedMeta, getFeedMeta } from './utils/db'
 import Header from './components/Header'
 import Sidebar from './components/Sidebar'
 import ArticleList from './components/ArticleList'
@@ -24,8 +24,10 @@ const STORAGE_KEYS = {
   EXPANDED_CATS: 'rss-reader-expanded-cats',
   READ_POSITIONS: 'rss-reader-read-positions',
   AUDIO_POSITIONS: 'rss-reader-audio-positions',
-  ARTICLE_CACHE: 'rss-reader-article-cache',
 }
+
+// 已迁移到 IndexedDB feedMeta store，启动时清理遗留键回收 localStorage 配额
+const LEGACY_ARTICLE_CACHE_KEY = 'rss-reader-article-cache'
 
 function toParagraphHtml(text) {
   const escapeHtml = (input) => input
@@ -57,8 +59,6 @@ function App() {
   const [readPositions, setReadPositions] = useLocalStorage(STORAGE_KEYS.READ_POSITIONS, {})
   // 音频播放位置 - 持久化
   const [audioPositions, setAudioPositions] = useLocalStorage(STORAGE_KEYS.AUDIO_POSITIONS, {})
-  // 文章缓存 - 持久化
-  const [articleCache, setArticleCache] = useLocalStorage(STORAGE_KEYS.ARTICLE_CACHE, {})
 
   // 其他状态
   const [selectedFeed, setSelectedFeed] = useState(null)
@@ -129,6 +129,16 @@ function App() {
       })
     }
   }, [feeds, setExpandedCategories])
+
+  // ============ 清理遗留的 localStorage articleCache ============
+  // 该键已迁移到 IndexedDB feedMeta store，一次性清掉以回收配额
+  useEffect(() => {
+    try {
+      localStorage.removeItem(LEGACY_ARTICLE_CACHE_KEY)
+    } catch {
+      // 忽略：localStorage 不可用时本来也就没东西好清
+    }
+  }, [])
 
   // ============ 初始化 IndexedDB 缓存 ============
   useEffect(() => {
@@ -345,30 +355,30 @@ function App() {
       return
     }
 
-    // 在线模式：检查缓存
-    const cacheKey = feed.xmlUrl
-    const cached = articleCache[cacheKey]
-    const cacheAge = cached ? Date.now() - cached.timestamp : Infinity
-    const CACHE_TTL = 5 * 60 * 1000 // 5分钟缓存
+    // 在线模式：从 IndexedDB 查 feedMeta 判断是否命中 5min TTL
+    const CACHE_TTL = 5 * 60 * 1000
+    const meta = await getFeedMeta(feed.xmlUrl)
+    // 读 meta 期间用户可能已切到别的 feed，守卫一下
+    if (currentId !== requestIdRef.current) return
 
-    if (cached && cacheAge < CACHE_TTL) {
-      // 命中本地缓存
-      console.log('Using cached articles for:', feed.title)
-      setArticles(cached.articles || [])
-      return
+    const cacheAge = meta ? Date.now() - meta.lastFetchedAt : Infinity
+    if (cacheAge < CACHE_TTL) {
+      const cachedArticles = await getArticles(feed.xmlUrl)
+      if (currentId !== requestIdRef.current) return
+      if (cachedArticles.length > 0) {
+        console.log('Using cached articles for:', feed.title)
+        setArticles(cachedArticles)
+        return
+      }
+      // meta 命中但 articles 为空（罕见：被 clearExpiredCache 清过）→ 落到 fetch
     }
 
     const fetchedArticles = await fetchAllFeeds([feed], currentId)
     if (fetchedArticles.length > 0) {
-      setArticleCache(prev => ({
-        ...prev,
-        [cacheKey]: {
-          timestamp: Date.now(),
-          articles: fetchedArticles,
-        }
-      }))
+      // 文章本身由 saveArticles useEffect 落盘，这里只记 per-feed 时间戳
+      await saveFeedMeta(feed.xmlUrl, Date.now())
     }
-  }, [createRequest, fetchAllFeeds, articleCache, isOnline, setArticles, setArticleCache])
+  }, [createRequest, fetchAllFeeds, isOnline, setArticles])
 
   const handleSelectAll = useCallback(async () => {
     const currentId = createRequest()
