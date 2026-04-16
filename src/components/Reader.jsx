@@ -33,6 +33,8 @@ export default function Reader({
   const contentRef = useRef(null)
   const scrollTimeoutRef = useRef(null)
   const lastSavedTimeRef = useRef(0)  // 上次记录的时间
+  const progressRAFRef = useRef(null)  // requestAnimationFrame ID
+  const saveTimerRef = useRef(null)  // 延迟保存定时器
 
   // 恢复阅读滚动位置
   useEffect(() => {
@@ -72,12 +74,12 @@ export default function Reader({
     }, 500)
   }
 
-  // 清理滚动超时
+  // 清理定时器和 rAF
   useEffect(() => {
     return () => {
-      if (scrollTimeoutRef.current) {
-        clearTimeout(scrollTimeoutRef.current)
-      }
+      if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current)
+      if (progressRAFRef.current) cancelAnimationFrame(progressRAFRef.current)
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     }
   }, [])
 
@@ -381,12 +383,21 @@ export default function Reader({
                           }
                         }}
                         onTimeUpdate={() => {
+                          // 用 rAF 合并进度更新，避免每 250ms 都触发 re-render
+                          if (!progressRAFRef.current) {
+                            progressRAFRef.current = requestAnimationFrame(() => {
+                              progressRAFRef.current = null
+                              const currentTime = audioRef.current?.currentTime || 0
+                              setAudioProgress(currentTime)
+                            })
+                          }
+                          // 记录音频位置（每30秒持久化一次，减少 localStorage 写入）
                           const currentTime = audioRef.current?.currentTime || 0
-                          setAudioProgress(currentTime)
-                          // 记录音频位置（每5秒记录一次）
-                          if (currentTime > 0 && currentTime - lastSavedTimeRef.current >= 5 && onUpdateAudioPosition) {
+                          if (currentTime > 0 && currentTime - lastSavedTimeRef.current >= 30 && onUpdateAudioPosition) {
                             lastSavedTimeRef.current = currentTime
-                            onUpdateAudioPosition(currentTime)
+                            // 用 setTimeout 将 localStorage 写入推到下一个宏任务，不阻塞音频解码
+                            clearTimeout(saveTimerRef.current)
+                            saveTimerRef.current = setTimeout(() => onUpdateAudioPosition(currentTime), 0)
                           }
                         }}
                         onLoadedMetadata={() => setAudioDuration(audioRef.current?.duration || 0)}
