@@ -10,6 +10,7 @@ import { useRSSFetcher } from './hooks/useRSSFetcher'
 import { useOnlineStatus } from './hooks/useOnlineStatus'
 import { saveArticles, getArticles, clearExpiredCache, saveToReadingList, removeFromReadingList, getReadingList, saveFeedMeta, getFeedMeta, getAllReadStatus, saveReadStatusBatch } from './utils/db'
 import { getArticleKey } from './utils/articleKey'
+import { getSyncId, setSyncId, clearSyncId, generateSyncId, syncNow } from './utils/sync'
 import Header from './components/Header'
 import Sidebar from './components/Sidebar'
 import ArticleList from './components/ArticleList'
@@ -78,6 +79,108 @@ function App() {
   // 阅读列表状态
   const [readingList, setReadingList] = useState([])
   const [showReadingList, setShowReadingList] = useState(false)
+
+  // 跨设备同步状态
+  const [syncId, setSyncIdState] = useState(() => getSyncId())
+  const [syncStatus, setSyncStatus] = useState('idle') // idle | syncing | ok | error
+  const [syncError, setSyncError] = useState(null)
+  const [lastSyncedAt, setLastSyncedAt] = useState(null)
+  const syncPushTimerRef = useRef(null)
+  const syncInitRef = useRef(false) // 跳过 mount 时首次 auto-push(只响应真正变化)
+  const syncInFlightRef = useRef(false) // 防止同一设备并发 doSync(上一次还没回来不起新的)
+
+  // ============ 跨设备同步 ============
+  // applySyncResult:把 syncNow 返回的合并状态应用到 React state
+  // 关键点:compare-before-update——如果合并结果与当前 state 内容一致,不触发 setState,
+  // 从而避免"auto-push useEffect 再次触发 syncNow"的死循环
+  const applySyncResult = useCallback((result) => {
+    setReadSet(prev => {
+      if (prev.size === result.readSet.size) {
+        let allSame = true
+        for (const k of result.readSet) {
+          if (!prev.has(k)) { allSame = false; break }
+        }
+        if (allSame) return prev
+      }
+      return result.readSet
+    })
+
+    setReadingList(prev => {
+      if (prev.length === result.readingList.length) {
+        const prevIds = new Set(prev.map(a => getArticleKey(a)))
+        const allMatch = result.readingList.every(a => prevIds.has(getArticleKey(a)))
+        if (allMatch) return prev
+      }
+      return result.readingList
+    })
+
+    // 新同步来的已读 key,要从 unreadByFeed 里相应 feed 的 Set 中移除
+    setUnreadByFeed(prev => {
+      const next = new Map()
+      for (const [feedUrl, keys] of prev) {
+        const filtered = new Set()
+        for (const k of keys) {
+          if (!result.readSet.has(k)) filtered.add(k)
+        }
+        next.set(feedUrl, filtered)
+      }
+      return next
+    })
+  }, [])
+
+  const doSync = useCallback(async () => {
+    const id = getSyncId()
+    if (!id) return
+    if (syncInFlightRef.current) return // 已有同步在途,跳过;下次状态变化会重新触发
+    syncInFlightRef.current = true
+    setSyncStatus('syncing')
+    setSyncError(null)
+    try {
+      const result = await syncNow(id)
+      applySyncResult(result)
+      setSyncStatus('ok')
+      setLastSyncedAt(Date.now())
+    } catch (err) {
+      console.error('[App] sync failed:', err)
+      setSyncStatus('error')
+      setSyncError(err?.message || String(err))
+    } finally {
+      syncInFlightRef.current = false
+    }
+  }, [applySyncResult])
+
+  const handleEnableSync = useCallback(() => {
+    const id = generateSyncId()
+    setSyncId(id)
+    setSyncIdState(id)
+    // syncId 变化会触发"初始同步" useEffect,不用在这里显式调 doSync
+  }, [])
+
+  const handlePairSync = useCallback((id) => {
+    try {
+      const normalized = setSyncId(id)
+      setSyncIdState(normalized)
+    } catch (err) {
+      setSyncError(err?.message || '配对失败')
+      setSyncStatus('error')
+    }
+  }, [])
+
+  const handleSyncNow = useCallback(() => {
+    doSync()
+  }, [doSync])
+
+  const handleDisableSync = useCallback(() => {
+    clearSyncId()
+    setSyncIdState(null)
+    setSyncStatus('idle')
+    setSyncError(null)
+    setLastSyncedAt(null)
+    if (syncPushTimerRef.current) {
+      clearTimeout(syncPushTimerRef.current)
+      syncPushTimerRef.current = null
+    }
+  }, [])
 
   // 切换阅读列表视图
   const handleToggleReadingList = useCallback(() => {
@@ -254,6 +357,39 @@ function App() {
   // 启动时不再自动全量抓 feed,改为"点击 feed = 读 IDB 缓存;过期则后台 revalidate;
   // 用户主动点刷新才显式抓"——见 handleSelectFeed 和 handleRefresh。首次装完没缓存
   // 的新 feed,点进去时走阻塞式 fetch(fetchAllFeeds)显示加载状态。
+
+  // ============ 跨设备同步 - 初始同步 ============
+  // syncId 存在且在线时触发一次 syncNow。syncId 变化(用户启用/配对)也会重跑。
+  useEffect(() => {
+    if (!syncId || !isOnline) return
+    doSync()
+  }, [syncId, isOnline, doSync])
+
+  // ============ 跨设备同步 - 自动推送 ============
+  // readSet / readingList 变化时 debounce 3s 调 syncNow。
+  // syncInitRef 守卫 mount 时第一次变化(init useEffect 把 readSet 从空变有会触发)。
+  // applySyncResult 里有 compare-before-update,sync 结果若与当前 state 相同不触发
+  // 再次 setReadSet,从而断掉 "sync → setState → useEffect → sync" 的死循环。
+  useEffect(() => {
+    if (!syncInitRef.current) {
+      syncInitRef.current = true
+      return
+    }
+    if (!syncId || !isOnline) return
+
+    if (syncPushTimerRef.current) {
+      clearTimeout(syncPushTimerRef.current)
+    }
+    syncPushTimerRef.current = setTimeout(() => {
+      doSync()
+    }, 3000)
+
+    return () => {
+      if (syncPushTimerRef.current) {
+        clearTimeout(syncPushTimerRef.current)
+      }
+    }
+  }, [readSet, readingList, syncId, isOnline, doSync])
 
   // ============ 主题处理 ============
   useEffect(() => {
@@ -709,6 +845,14 @@ function App() {
         loading={loading}
         progress={progress}
         isOnline={isOnline}
+        syncId={syncId}
+        syncStatus={syncStatus}
+        syncError={syncError}
+        lastSyncedAt={lastSyncedAt}
+        onEnableSync={handleEnableSync}
+        onPairSync={handlePairSync}
+        onSync={handleSyncNow}
+        onDisableSync={handleDisableSync}
       />
 
       <div className="flex-1 flex overflow-hidden">

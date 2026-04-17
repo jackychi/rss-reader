@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef } from 'react'
+import { CORS_WORKER_URL } from '../utils/constants'
 
 /**
  * useRSSFetcher Hook - RSS 订阅源获取与解析
@@ -9,10 +10,6 @@ const BATCH_SIZE = 5
 const BATCH_DELAY = 300
 const MAX_RETRIES = 2
 const RETRY_DELAY = 1000
-
-// 自建 Cloudflare Worker CORS 代理(cloudflare-worker/ 目录下部署)
-// 换域名只改这一处,后续如果要抽成 Vite env var 也集中在此
-const CORS_WORKER_URL = 'https://catreader-proxy.jackychi.workers.dev'
 
 function buildContentSnippet(content = '') {
   return content

@@ -204,6 +204,49 @@ export async function saveReadStatusBatch(articleKeys) {
   }
 }
 
+// 批量保存已读记录(保留传入的 readAt,用于跨设备同步合并)
+// 跟 saveReadStatusBatch 的区别:那个统一使用 Date.now(),这个保留原始时间戳
+export async function saveReadStatusRecordsBatch(records) {
+  if (!Array.isArray(records) || records.length === 0) return true
+  try {
+    const db = await openDB()
+    const tx = db.transaction('readStatus', 'readwrite')
+    const store = tx.objectStore('readStatus')
+
+    records.forEach((rec) => {
+      if (!rec?.articleKey) return
+      store.put({ articleKey: rec.articleKey, readAt: rec.readAt ?? Date.now() })
+    })
+
+    return new Promise((resolve, reject) => {
+      tx.oncomplete = () => resolve(true)
+      tx.onerror = () => reject(tx.error)
+    })
+  } catch (error) {
+    console.error('[DB] Failed to save read status records batch:', error)
+    return false
+  }
+}
+
+// 获取所有已读记录(含 readAt 时间戳,供同步模块使用)
+// 跟 getAllReadStatus() 的区别:那个返回 {articleKey: true} map,这个返回原始记录数组
+export async function getAllReadStatusRecords() {
+  try {
+    const db = await openDB()
+    const tx = db.transaction('readStatus', 'readonly')
+    const store = tx.objectStore('readStatus')
+
+    return new Promise((resolve, reject) => {
+      const request = store.getAll()
+      request.onsuccess = () => resolve(request.result || [])
+      request.onerror = () => reject(request.error)
+    })
+  } catch (error) {
+    console.error('[DB] Failed to get all read status records:', error)
+    return []
+  }
+}
+
 // 获取已读状态
 export async function getReadStatus(articleKey) {
   try {
@@ -413,8 +456,10 @@ export default {
   getFeeds,
   saveReadStatus,
   saveReadStatusBatch,
+  saveReadStatusRecordsBatch,
   getReadStatus,
   getAllReadStatus,
+  getAllReadStatusRecords,
   saveToReadingList,
   removeFromReadingList,
   getReadingList,

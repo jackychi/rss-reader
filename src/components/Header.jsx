@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Rss, RefreshCw, Upload, PanelLeft, Sun, Moon, CloudSun, WifiOff } from 'lucide-react'
+import { Rss, RefreshCw, Upload, PanelLeft, Sun, Moon, CloudSun, WifiOff, Cloud, Copy, Check } from 'lucide-react'
 
 const themes = [
   { id: 'light', name: '浅色', icon: Sun },
@@ -7,9 +7,28 @@ const themes = [
   { id: 'warm', name: '淡黄', icon: CloudSun },
 ]
 
+// 相对时间格式化(不引 date-fns 避免又多一个 import)
+function formatRelative(ts) {
+  if (!ts) return '从未'
+  const diff = Date.now() - ts
+  if (diff < 60_000) return '刚刚'
+  if (diff < 3600_000) return `${Math.floor(diff / 60_000)} 分钟前`
+  if (diff < 86400_000) return `${Math.floor(diff / 3600_000)} 小时前`
+  return `${Math.floor(diff / 86400_000)} 天前`
+}
+
+function syncIconColor(status) {
+  switch (status) {
+    case 'syncing': return 'var(--accent-color)'
+    case 'ok': return '#10b981'
+    case 'error': return '#ef4444'
+    default: return 'var(--text-muted)'
+  }
+}
+
 /**
  * Header 组件 - 顶部工具栏
- * 支持：刷新进度显示、主题切换、OPML 导入、离线状态提示
+ * 支持：刷新进度显示、主题切换、OPML 导入、离线状态提示、跨设备同步
  */
 export default function Header({
   theme,
@@ -21,10 +40,24 @@ export default function Header({
   selectedFeed,
   loading,
   progress,
-  isOnline
+  isOnline,
+  // 同步相关
+  syncId,
+  syncStatus = 'idle',
+  syncError = null,
+  lastSyncedAt = null,
+  onEnableSync,
+  onPairSync,
+  onSync,
+  onDisableSync,
 }) {
   const [showThemeMenu, setShowThemeMenu] = useState(false)
+  const [showSyncMenu, setShowSyncMenu] = useState(false)
+  const [pairingMode, setPairingMode] = useState(false)
+  const [pairingInput, setPairingInput] = useState('')
+  const [copyFeedback, setCopyFeedback] = useState(false)
   const menuRef = useRef(null)
+  const syncMenuRef = useRef(null)
 
   // 点击外部关闭菜单
   useEffect(() => {
@@ -32,10 +65,41 @@ export default function Header({
       if (menuRef.current && !menuRef.current.contains(e.target)) {
         setShowThemeMenu(false)
       }
+      if (syncMenuRef.current && !syncMenuRef.current.contains(e.target)) {
+        setShowSyncMenu(false)
+        setPairingMode(false)
+        setPairingInput('')
+      }
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
+
+  const handleCopySyncId = async () => {
+    if (!syncId) return
+    try {
+      await navigator.clipboard.writeText(syncId)
+      setCopyFeedback(true)
+      setTimeout(() => setCopyFeedback(false), 1500)
+    } catch {
+      // clipboard API 不可用时忽略,用户仍能手选复制
+    }
+  }
+
+  const handleSubmitPair = () => {
+    const id = pairingInput.trim()
+    if (!id) return
+    onPairSync?.(id)
+    setPairingMode(false)
+    setPairingInput('')
+  }
+
+  const handleDisable = () => {
+    if (confirm('确定要关闭同步?本地数据保留,但新变化不再同步到其他设备。')) {
+      onDisableSync?.()
+      setShowSyncMenu(false)
+    }
+  }
 
   const currentTheme = themes.find(t => t.id === theme) || themes[0]
   const CurrentIcon = currentTheme.icon
@@ -130,6 +194,166 @@ export default function Header({
             <RefreshCw size={18} className={isRefreshing || loading ? 'animate-spin' : ''} />
           </button>
         </div>
+        {/* 跨设备同步 */}
+        <div ref={syncMenuRef} style={{ position: 'relative' }}>
+          <button
+            onClick={() => setShowSyncMenu((v) => !v)}
+            style={{
+              padding: '6px',
+              borderRadius: '6px',
+              backgroundColor: showSyncMenu ? 'var(--bg-tertiary)' : 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+            }}
+            title={syncId ? `同步: ${syncStatus === 'error' ? '错误' : '已启用'}` : '跨设备同步'}
+            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'}
+            onMouseLeave={(e) => { if (!showSyncMenu) e.currentTarget.style.backgroundColor = 'transparent' }}
+          >
+            <Cloud
+              size={18}
+              style={{ color: syncIconColor(syncStatus) }}
+              className={syncStatus === 'syncing' ? 'animate-pulse' : ''}
+            />
+          </button>
+
+          {showSyncMenu && (
+            <div style={{
+              position: 'absolute',
+              top: '100%',
+              right: 0,
+              marginTop: '4px',
+              backgroundColor: 'var(--bg-primary)',
+              border: '1px solid var(--border-color)',
+              borderRadius: '8px',
+              boxShadow: '0 4px 12px var(--shadow-color)',
+              padding: '12px',
+              zIndex: 1000,
+              minWidth: '280px',
+              fontSize: '13px',
+              color: 'var(--text-primary)',
+            }}>
+              {!syncId ? (
+                // ---- 未启用状态 ----
+                pairingMode ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ fontWeight: 600 }}>粘贴另一设备的 Sync ID</div>
+                    <input
+                      type="text"
+                      autoFocus
+                      value={pairingInput}
+                      onChange={(e) => setPairingInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleSubmitPair() }}
+                      placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                      style={{
+                        padding: '6px 8px',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: '4px',
+                        fontSize: '12px',
+                        fontFamily: 'ui-monospace, monospace',
+                        backgroundColor: 'var(--bg-secondary)',
+                        color: 'var(--text-primary)',
+                      }}
+                    />
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <button
+                        onClick={handleSubmitPair}
+                        style={{ flex: 1, padding: '6px', border: 'none', backgroundColor: 'var(--accent-color)', color: '#fff', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}
+                      >确定</button>
+                      <button
+                        onClick={() => { setPairingMode(false); setPairingInput('') }}
+                        style={{ flex: 1, padding: '6px', border: '1px solid var(--border-color)', backgroundColor: 'transparent', color: 'var(--text-secondary)', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}
+                      >取消</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <div style={{ fontWeight: 600 }}>☁️ 跨设备同步</div>
+                    <div style={{ color: 'var(--text-secondary)', fontSize: '12px', lineHeight: 1.5 }}>
+                      同步已读状态和阅读列表。首次启用会生成一个 Sync ID,在另一台设备上粘贴此 ID 即可配对。
+                    </div>
+                    <button
+                      onClick={() => { onEnableSync?.(); setShowSyncMenu(false) }}
+                      style={{ padding: '8px', border: 'none', backgroundColor: 'var(--accent-color)', color: '#fff', borderRadius: '4px', cursor: 'pointer', fontSize: '13px', fontWeight: 500 }}
+                    >启用同步</button>
+                    <button
+                      onClick={() => setPairingMode(true)}
+                      style={{ padding: '8px', border: '1px solid var(--border-color)', backgroundColor: 'transparent', color: 'var(--text-primary)', borderRadius: '4px', cursor: 'pointer', fontSize: '13px' }}
+                    >用现有 ID 配对</button>
+                  </div>
+                )
+              ) : (
+                // ---- 已启用状态 ----
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Cloud size={14} style={{ color: syncIconColor(syncStatus) }} />
+                    <span>
+                      {syncStatus === 'syncing' ? '正在同步...'
+                        : syncStatus === 'error' ? '同步失败'
+                        : '同步已启用'}
+                    </span>
+                  </div>
+
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                    Sync ID(勿公开分享,等同密钥)
+                  </div>
+                  <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                    <code style={{
+                      flex: 1,
+                      padding: '6px 8px',
+                      fontSize: '11px',
+                      fontFamily: 'ui-monospace, monospace',
+                      backgroundColor: 'var(--bg-secondary)',
+                      border: '1px solid var(--border-color)',
+                      borderRadius: '4px',
+                      wordBreak: 'break-all',
+                      userSelect: 'all',
+                    }}>{syncId}</code>
+                    <button
+                      onClick={handleCopySyncId}
+                      title={copyFeedback ? '已复制' : '复制'}
+                      style={{ padding: '6px', border: '1px solid var(--border-color)', backgroundColor: 'transparent', borderRadius: '4px', cursor: 'pointer', color: 'var(--text-primary)' }}
+                    >
+                      {copyFeedback ? <Check size={12} /> : <Copy size={12} />}
+                    </button>
+                  </div>
+
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                    上次同步: {formatRelative(lastSyncedAt)}
+                    {syncError && (
+                      <div style={{ color: '#ef4444', marginTop: '4px', fontSize: '11px' }}>
+                        {syncError}
+                      </div>
+                    )}
+                  </div>
+
+                  <button
+                    onClick={() => { onSync?.() }}
+                    disabled={syncStatus === 'syncing'}
+                    style={{
+                      padding: '8px',
+                      border: 'none',
+                      backgroundColor: 'var(--accent-color)',
+                      color: '#fff',
+                      borderRadius: '4px',
+                      cursor: syncStatus === 'syncing' ? 'default' : 'pointer',
+                      fontSize: '13px',
+                      fontWeight: 500,
+                      opacity: syncStatus === 'syncing' ? 0.6 : 1,
+                    }}
+                  >立即同步</button>
+
+                  <div style={{ borderTop: '1px solid var(--border-color)', margin: '4px 0' }} />
+
+                  <button
+                    onClick={handleDisable}
+                    style={{ padding: '6px', border: 'none', backgroundColor: 'transparent', color: '#ef4444', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}
+                  >关闭同步</button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
         <label style={{ padding: '6px', borderRadius: '6px', cursor: 'pointer', backgroundColor: 'transparent' }} title="Import OPML"
           onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'}
           onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
