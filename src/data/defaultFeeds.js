@@ -102,7 +102,7 @@ export const defaultFeeds = [
       { title: "游荡集", xmlUrl: "https://feed.xyzfm.space/6m6qmdfmaf6d" },
       { title: "古典不dan调", xmlUrl: "https://feed.xyzfm.space/64xxbj6nmcpe" },
       { title: "阮一峰的网络日志", xmlUrl: "http://feeds.feedburner.com/ruanyifeng" },
-      { title: "大脸撑在小胸上", xmlUrl: "https://www.youtube.com/feeds/videos.xml?channel_id=UCv8djBlOdCZWZ-7Nal-3pJQ" },
+      { title: "汀见(原:大脸撑在小胸上)", xmlUrl: "https://rsshub-eta-topaz-88.vercel.app/youtube/channel/UCv8djBlOdCZWZ-7Nal-3pJQ" },
       { title: "王志安", xmlUrl: "https://www.youtube.com/feeds/videos.xml?channel_id=UCBKDRq35-L8xev4O7ZqBeLg" },
       { title: "蒋方舟·一寸", xmlUrl: "https://api.vistopia.com.cn/rss/program/403.xml" },
       { title: "MacTalk·夜航西飞", xmlUrl: "https://feed.xyzfm.space/9mkbwqtmr8ma" },
