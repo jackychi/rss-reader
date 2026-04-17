@@ -10,6 +10,10 @@ const BATCH_DELAY = 300
 const MAX_RETRIES = 2
 const RETRY_DELAY = 1000
 
+// 自建 Cloudflare Worker CORS 代理(cloudflare-worker/ 目录下部署)
+// 换域名只改这一处,后续如果要抽成 Vite env var 也集中在此
+const CORS_WORKER_URL = 'https://catreader-proxy.jackychi.workers.dev'
+
 function buildContentSnippet(content = '') {
   return content
     .replace(/<[^>]*>/g, '')
@@ -44,23 +48,15 @@ export function useRSSFetcher() {
     const isXgoIng = feed.xmlUrl.includes('api.xgo.ing')
     const rsshubBase = 'https://rsshub-eta-topaz-88.vercel.app'
 
-    // 通用 limit 参数（用于非 rss2json 的代理）
-    const limitParam = '&limit=100'
-    // 问号还是 &
-    const hasQuery = feed.xmlUrl.includes('?')
-    const urlSuffix = hasQuery ? limitParam : ''
-
+    // 非 xgo.ing 的源走"直连 → 自建 CF Worker → rss2json"三层链路
+    // 直连成功的场景:源站自带 CORS 头(xyzfm.space、部分 GitHub Pages 等)
+    // 主力是 CF Worker,10 万次/天免费配额
+    // rss2json 作为最终兜底,免费版 10 条限制——只有 Worker 也挂了才会落到这一档
     const proxies = isXgoIng
       ? [`${rsshubBase}/${feed.xmlUrl.replace(/^https?:\/\//, '')}`]
       : [
-          // 优先尝试直接请求
           { url: feed.xmlUrl, isDirect: true },
-          // 代理都加 limit（除了 rss2json）
-          `https://corsproxy.io/?${encodeURIComponent(feed.xmlUrl)}${urlSuffix}`,
-          `https://api.allorigins.win/get?url=${encodeURIComponent(feed.xmlUrl)}${urlSuffix}`,
-          `https://cors-anywhere.herokuapp.com/${feed.xmlUrl}${urlSuffix}`,
-          `${rsshubBase}/${feed.xmlUrl.replace(/^https?:\/\//, '')}${urlSuffix}`,
-          // rss2json 免费版有 10 条限制，放最后
+          `${CORS_WORKER_URL}/?url=${encodeURIComponent(feed.xmlUrl)}`,
           { url: `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feed.xmlUrl)}`, isRss2Json: true },
         ]
 
@@ -85,47 +81,6 @@ export function useRSSFetcher() {
             }))
             break
           }
-        }
-
-        if (proxyUrl.includes('allorigins.win/get')) {
-          const response = await fetch(proxyUrl)
-          const data = await response.json()
-          if (!data.contents) continue
-          const xmlText = data.contents
-          const domParser = new DOMParser()
-          const xml = domParser.parseFromString(xmlText, 'text/xml')
-          const items = xml.querySelectorAll('item, entry')
-          const title = xml.querySelector('channel > title, feed > title')?.textContent || feed.title
-          const articles = Array.from(items).map(item => {
-            const enclosureEl = item.getElementsByTagName('enclosure')[0]
-            const enclosure = enclosureEl ? {
-              url: enclosureEl.getAttribute('url'),
-              type: enclosureEl.getAttribute('type'),
-              length: enclosureEl.getAttribute('length')
-            } : null
-            const content = extractArticleContent(item)
-
-            return {
-              title: item.querySelector('title')?.textContent || '',
-              link: item.querySelector('link')?.textContent || item.querySelector('link')?.getAttribute('href') || '',
-              content,
-              contentSnippet: buildContentSnippet(content),
-              pubDate: item.querySelector('pubDate, published, updated')?.textContent || new Date().toISOString(),
-              isoDate: item.querySelector('pubDate, published, updated')?.textContent || new Date().toISOString(),
-              guid: item.querySelector('id')?.textContent || item.querySelector('link')?.textContent || '',
-              enclosure,
-            }
-          })
-          if (articles.length === 0) {
-            console.warn(`[fetchFeed] ${proxyUrl} returned 0 items for ${feed.title}, trying next proxy`)
-            continue
-          }
-          articlesWithFeed = articles.map(item => ({
-            ...item,
-            feedTitle: title,
-            feedUrl: feed.xmlUrl,
-          }))
-          break
         }
 
         const response = await fetch(proxyUrl)
