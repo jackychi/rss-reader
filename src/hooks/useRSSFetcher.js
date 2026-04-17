@@ -116,6 +116,10 @@ export function useRSSFetcher() {
               enclosure,
             }
           })
+          if (articles.length === 0) {
+            console.warn(`[fetchFeed] ${proxyUrl} returned 0 items for ${feed.title}, trying next proxy`)
+            continue
+          }
           articlesWithFeed = articles.map(item => ({
             ...item,
             feedTitle: title,
@@ -157,6 +161,10 @@ export function useRSSFetcher() {
           }
         })
 
+        if (articles.length === 0) {
+          console.warn(`[fetchFeed] ${proxyUrl} returned 0 items for ${feed.title}, trying next proxy`)
+          continue
+        }
         articlesWithFeed = articles.map(item => ({
           ...item,
           feedTitle: title,
