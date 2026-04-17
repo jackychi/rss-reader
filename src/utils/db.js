@@ -181,6 +181,29 @@ export async function saveReadStatus(articleKey) {
   }
 }
 
+// 批量保存已读状态(mark all as read / localStorage 迁移场景,单条事务)
+export async function saveReadStatusBatch(articleKeys) {
+  if (!Array.isArray(articleKeys) || articleKeys.length === 0) return true
+  try {
+    const db = await openDB()
+    const tx = db.transaction('readStatus', 'readwrite')
+    const store = tx.objectStore('readStatus')
+    const readAt = Date.now()
+
+    articleKeys.forEach((articleKey) => {
+      store.put({ articleKey, readAt })
+    })
+
+    return new Promise((resolve, reject) => {
+      tx.oncomplete = () => resolve(true)
+      tx.onerror = () => reject(tx.error)
+    })
+  } catch (error) {
+    console.error('[DB] Failed to save read status batch:', error)
+    return false
+  }
+}
+
 // 获取已读状态
 export async function getReadStatus(articleKey) {
   try {
@@ -389,6 +412,7 @@ export default {
   saveFeeds,
   getFeeds,
   saveReadStatus,
+  saveReadStatusBatch,
   getReadStatus,
   getAllReadStatus,
   saveToReadingList,

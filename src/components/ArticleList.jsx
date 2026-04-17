@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { FileText, Loader2, AlertCircle, Search, RefreshCw, CheckCheck } from 'lucide-react'
+import { getArticleKey } from '../utils/articleKey'
 
 /**
  * ArticleList 组件 - 中间文章列表
@@ -160,12 +161,10 @@ export default function ArticleList({
           </div>
         ) : (
           articles.map((article) => {
-            // 生成文章唯一标识（与 readStatus 存储格式一致，不含 idx）
-            const articleKey = `${article.feedUrl}-${article.guid || article.link}`
+            const articleKey = getArticleKey(article)
             const isUnread = unreadArticles.has(articleKey)
 
-            // 计算当前选中文章的唯一标识
-            const selectedKey = selectedArticle ? `${selectedArticle.feedUrl}-${selectedArticle.guid || selectedArticle.link}` : null
+            const selectedKey = selectedArticle ? getArticleKey(selectedArticle) : null
             const isSelected = articleKey === selectedKey
 
             // 检查文章是否匹配搜索（高亮显示）
