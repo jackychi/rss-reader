@@ -93,7 +93,7 @@ function App() {
   }, [showReadingList])
 
   // 使用 RSS Fetcher Hook
-  const { loading, articles, error, progress, fetchAllFeeds, createRequest, searchArticles, setArticles } = useRSSFetcher()
+  const { loading, articles, error, progress, fetchFeed, fetchAllFeeds, createRequest, searchArticles, setArticles } = useRSSFetcher()
 
   // 网络状态检测
   const { isOnline } = useOnlineStatus()
@@ -251,23 +251,9 @@ function App() {
     loadReadingList()
   }, [loadReadingList])
 
-  // ============ 启动时自动获取RSS源 ============
-  const initialLoadDoneRef = useRef(false)
-
-  useEffect(() => {
-    if (initialLoadDoneRef.current || !isOnline) return
-    initialLoadDoneRef.current = true
-
-    const fetchInitialFeeds = async () => {
-      const currentId = createRequest()
-      requestIdRef.current = currentId
-      console.log('[App] Auto-fetching all feeds on startup')
-      const allFeeds = feeds.flatMap(f => f.feeds)
-      await fetchAllFeeds(allFeeds, currentId)
-    }
-
-    fetchInitialFeeds()
-  }, [feeds, createRequest, fetchAllFeeds, isOnline])
+  // 启动时不再自动全量抓 feed,改为"点击 feed = 读 IDB 缓存;过期则后台 revalidate;
+  // 用户主动点刷新才显式抓"——见 handleSelectFeed 和 handleRefresh。首次装完没缓存
+  // 的新 feed,点进去时走阻塞式 fetch(fetchAllFeeds)显示加载状态。
 
   // ============ 主题处理 ============
   useEffect(() => {
@@ -428,53 +414,60 @@ function App() {
   }, [])
 
   // ============ 事件处理 ============
+  // 点击 feed 的交互采用 stale-while-revalidate 模式:
+  //   1. 立即读 IDB 缓存 setArticles(秒开,UI 永远不 block)
+  //   2. 离线 → 到此为止
+  //   3. 缓存为空(新 feed 首次访问) → 走 fetchAllFeeds 阻塞抓,配合 loading 指示
+  //   4. 缓存存在但超过 STALE_TTL → 静默 revalidate(fetchFeed 不 set loading),
+  //      抓到新数据后 setArticles 覆盖、saveFeedMeta 更新时间戳
+  //   5. 缓存新鲜 → 完全不请求网络
+  // 想要强制刷新时用顶栏刷新按钮(handleRefresh)
   const handleSelectFeed = useCallback(async (_category, feed) => {
     const currentId = createRequest()
     requestIdRef.current = currentId
     setSelectedFeed(feed)
     setSelectedArticle(null)
     setShowOriginal(false)
-    setShowReadingList(false) // 切换订阅源时退出阅读列表视图
-    setArticleSearchQuery('') // 切换订阅源时清除文章搜索
-    setIsFullscreen(false) // 切换订阅源时退出全屏模式
+    setShowReadingList(false)
+    setArticleSearchQuery('')
+    setIsFullscreen(false)
 
-    // 离线模式：直接从 IndexedDB 加载缓存
-    if (!isOnline) {
-      console.log('[App] Offline mode - loading from IndexedDB')
-      const cachedArticles = await getArticles(feed.xmlUrl)
-      if (cachedArticles.length > 0) {
-        console.log('[App] Loaded', cachedArticles.length, 'cached articles for', feed.title)
-        setArticles(cachedArticles)
-      } else {
-        setArticles([])
+    // 1. 先读 IDB 立即展示
+    const cachedArticles = await getArticles(feed.xmlUrl)
+    if (currentId !== requestIdRef.current) return
+    setArticles(cachedArticles)
+
+    // 2. 离线到此为止
+    if (!isOnline) return
+
+    // 3. IDB 空:首次访问,阻塞式抓(显示 loading)
+    if (cachedArticles.length === 0) {
+      const fetched = await fetchAllFeeds([feed], currentId)
+      if (fetched.length > 0) {
+        await saveFeedMeta(feed.xmlUrl, Date.now())
       }
       return
     }
 
-    // 在线模式：从 IndexedDB 查 feedMeta 判断是否命中 5min TTL
-    const CACHE_TTL = 5 * 60 * 1000
+    // 4. 看 TTL,新鲜就跳过 revalidate
+    const STALE_TTL = 15 * 60 * 1000
     const meta = await getFeedMeta(feed.xmlUrl)
-    // 读 meta 期间用户可能已切到别的 feed，守卫一下
     if (currentId !== requestIdRef.current) return
-
     const cacheAge = meta ? Date.now() - meta.lastFetchedAt : Infinity
-    if (cacheAge < CACHE_TTL) {
-      const cachedArticles = await getArticles(feed.xmlUrl)
-      if (currentId !== requestIdRef.current) return
-      if (cachedArticles.length > 0) {
-        console.log('Using cached articles for:', feed.title)
-        setArticles(cachedArticles)
-        return
-      }
-      // meta 命中但 articles 为空（罕见：被 clearExpiredCache 清过）→ 落到 fetch
-    }
+    if (cacheAge < STALE_TTL) return
 
-    const fetchedArticles = await fetchAllFeeds([feed], currentId)
-    if (fetchedArticles.length > 0) {
-      // 文章本身由 saveArticles useEffect 落盘，这里只记 per-feed 时间戳
-      await saveFeedMeta(feed.xmlUrl, Date.now())
+    // 5. 过期 → 静默 revalidate(fetchFeed 不 set loading,UI 保留缓存文章)
+    try {
+      const result = await fetchFeed(feed)
+      if (currentId !== requestIdRef.current) return
+      if (result?.articles?.length > 0) {
+        setArticles(result.articles)
+        await saveFeedMeta(feed.xmlUrl, Date.now())
+      }
+    } catch {
+      // 悄默失败,IDB 缓存仍在屏上
     }
-  }, [createRequest, fetchAllFeeds, isOnline, setArticles])
+  }, [createRequest, fetchFeed, fetchAllFeeds, isOnline, setArticles])
 
   const handleSelectAll = useCallback(async () => {
     const currentId = createRequest()
