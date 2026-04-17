@@ -16,6 +16,7 @@ import Sidebar from './components/Sidebar'
 import ArticleList from './components/ArticleList'
 import Reader from './components/Reader'
 import ReadingList from './components/ReadingList'
+import AskCatDrawer from './components/AskCatDrawer'
 
 // 常量
 const STORAGE_KEYS = {
@@ -79,6 +80,9 @@ function App() {
   // 阅读列表状态
   const [readingList, setReadingList] = useState([])
   const [showReadingList, setShowReadingList] = useState(false)
+
+  // Ask Cat 抽屉状态(始终挂载组件,仅切换可见性)
+  const [isAskCatOpen, setIsAskCatOpen] = useState(false)
 
   // 跨设备同步状态
   const [syncId, setSyncIdState] = useState(() => getSyncId())
@@ -798,6 +802,16 @@ function App() {
     markAsRead(article)
   }, [markAsRead])
 
+  // Ask Cat 里点击引用时,打开对应文章
+  // 不动 selectedFeed,让 Reader 直接展示这篇(相当于从聊天抽屉"插入阅读")
+  // 抽屉保持打开,用户可以点多个引用轮流看
+  const handleOpenArticleFromAskCat = useCallback((article) => {
+    setSelectedArticle(article)
+    setShowOriginal(false)
+    setReaderVisible(true)
+    markAsRead(article)
+  }, [markAsRead])
+
   const toggleCategory = useCallback((category) => {
     setExpandedCategories(prev => ({
       ...prev,
@@ -853,6 +867,8 @@ function App() {
         onPairSync={handlePairSync}
         onSync={handleSyncNow}
         onDisableSync={handleDisableSync}
+        isAskCatOpen={isAskCatOpen}
+        onToggleAskCat={() => setIsAskCatOpen(v => !v)}
       />
 
       <div className="flex-1 flex overflow-hidden">
@@ -929,6 +945,14 @@ function App() {
           />
         )}
       </div>
+
+      {/* Ask Cat 抽屉 — 始终挂载,transform 控制滑入滑出;消息状态随组件生命周期 */}
+      <AskCatDrawer
+        isOpen={isAskCatOpen}
+        onClose={() => setIsAskCatOpen(false)}
+        articles={articles}
+        onOpenArticle={handleOpenArticleFromAskCat}
+      />
     </div>
   )
 }

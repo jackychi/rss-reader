@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Rss, RefreshCw, Upload, PanelLeft, Sun, Moon, CloudSun, WifiOff, Cloud, Copy, Check } from 'lucide-react'
+import { Rss, RefreshCw, Upload, PanelLeft, Sun, Moon, CloudSun, WifiOff, Cloud, Copy, Check, MessageCircle } from 'lucide-react'
 
 const themes = [
   { id: 'light', name: '浅色', icon: Sun },
@@ -50,6 +50,9 @@ export default function Header({
   onPairSync,
   onSync,
   onDisableSync,
+  // Ask Cat
+  onToggleAskCat,
+  isAskCatOpen = false,
 }) {
   const [showThemeMenu, setShowThemeMenu] = useState(false)
   const [showSyncMenu, setShowSyncMenu] = useState(false)
@@ -353,6 +356,23 @@ export default function Header({
             </div>
           )}
         </div>
+
+        {/* Ask Cat */}
+        <button
+          onClick={onToggleAskCat}
+          style={{
+            padding: '6px',
+            borderRadius: '6px',
+            backgroundColor: isAskCatOpen ? 'var(--bg-tertiary)' : 'transparent',
+            border: 'none',
+            cursor: 'pointer',
+          }}
+          title="Ask Cat — 基于你订阅源文章的 LLM 助手"
+          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'}
+          onMouseLeave={(e) => { if (!isAskCatOpen) e.currentTarget.style.backgroundColor = 'transparent' }}
+        >
+          <MessageCircle size={18} />
+        </button>
 
         <label style={{ padding: '6px', borderRadius: '6px', cursor: 'pointer', backgroundColor: 'transparent' }} title="Import OPML"
           onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'}
