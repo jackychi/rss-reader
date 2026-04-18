@@ -11,6 +11,7 @@ export default function Sidebar({
   onToggleCategory,
   onSelectFeed,
   onSelectAll,
+  onSelectCategory,
   searchQuery,
   onSearchChange,
   unreadCounts,
@@ -144,11 +145,18 @@ export default function Sidebar({
         {filteredFeeds.map((category) => {
           const categoryUnread = unreadCounts[category.category] || 0
           const isExpanded = expandedCategories[category.category]
+          const isSelected = selectedFeed?.xmlUrl === `category:${category.category}`
 
           return (
             <div key={category.category} style={{ marginBottom: '4px' }}>
               <div
-                onClick={() => onToggleCategory(category.category)}
+                onClick={() => {
+                  // 同一次点击做两件事:同时选中该分类(中间栏展示该分类全部缓存文章)
+                  // 与切换展开/收起状态
+                  onSelectCategory?.(category.category)
+                  onToggleCategory(category.category)
+                }}
+                className={isSelected ? 'sidebar-item active' : 'sidebar-item'}
                 style={{
                   display: 'flex',
                   alignItems: 'center',

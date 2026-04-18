@@ -331,3 +331,209 @@ body {
 .animate-fadeIn {
   animation: fadeIn 0.25s ease-out forwards;
 }
+
+/* ============ Ask Cat 富文本渲染 ============ */
+
+/* 答案区:段间距 > 行间距,标题/列表/引用/代码完整样式 */
+.askcat-answer > *:first-child { margin-top: 0; }
+.askcat-answer > *:last-child { margin-bottom: 0; }
+
+.askcat-answer p {
+  margin: 0 0 0.9em 0;
+  line-height: 1.7;
+}
+
+.askcat-answer h1,
+.askcat-answer h2,
+.askcat-answer h3,
+.askcat-answer h4 {
+  margin: 1.1em 0 0.5em;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.askcat-answer h1 { font-size: 1.25em; }
+.askcat-answer h2 { font-size: 1.15em; }
+.askcat-answer h3 { font-size: 1.05em; }
+.askcat-answer h4 { font-size: 1em; }
+
+.askcat-answer ul,
+.askcat-answer ol {
+  margin: 0 0 0.9em 0;
+  padding-left: 0;
+  list-style-position: inside;
+}
+.askcat-answer li {
+  margin: 0.2em 0;
+  line-height: 1.7;
+}
+.askcat-answer li > p { margin: 0; display: inline; }
+
+.askcat-answer blockquote {
+  margin: 0.5em 0 0.9em;
+  padding: 0.2em 0.9em;
+  border-left: 3px solid var(--accent-color);
+  color: var(--text-secondary);
+  background-color: var(--bg-tertiary);
+  border-radius: 0 4px 4px 0;
+}
+.askcat-answer blockquote p:last-child { margin-bottom: 0; }
+
+.askcat-answer code {
+  padding: 0.15em 0.4em;
+  background-color: var(--bg-tertiary);
+  border-radius: 3px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+}
+.askcat-answer pre {
+  margin: 0.5em 0 0.9em;
+  padding: 0.7em 0.9em;
+  background-color: var(--bg-tertiary);
+  border-radius: 6px;
+  overflow-x: auto;
+  line-height: 1.5;
+}
+.askcat-answer pre code {
+  padding: 0;
+  background: transparent;
+  font-size: 0.88em;
+}
+
+.askcat-answer a {
+  color: var(--accent-color);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.askcat-answer a:hover { opacity: 0.8; }
+
+.askcat-answer hr {
+  margin: 1em 0;
+  border: 0;
+  border-top: 1px solid var(--border-color);
+}
+
+.askcat-answer strong { font-weight: 600; }
+.askcat-answer em { font-style: italic; }
+
+.askcat-answer table {
+  border-collapse: collapse;
+  margin: 0.5em 0 0.9em;
+  font-size: 0.92em;
+}
+.askcat-answer th,
+.askcat-answer td {
+  padding: 0.35em 0.7em;
+  border: 1px solid var(--border-color);
+}
+.askcat-answer th { background-color: var(--bg-tertiary); font-weight: 600; }
+
+/* 文章引用(点击可在 Reader 里展开原文) */
+.askcat-citation {
+  display: inline-block;
+  padding: 0 0.3em;
+  margin: 0 0.1em;
+  background-color: var(--bg-tertiary);
+  border-radius: 4px;
+  color: var(--accent-color);
+  text-decoration: none !important;
+  font-size: 0.85em;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+.askcat-citation:hover {
+  background-color: var(--accent-color);
+  color: #fff !important;
+}
+
+/* 本知识库里的文章链接(完整 URL 命中 context article.link 的,点击走 Reader) */
+/* 外观保持正常链接样式,但前缀小图标暗示"在站内打开" */
+.askcat-article-link {
+  color: var(--accent-color);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.askcat-article-link::before {
+  content: '🔗 ';
+  font-size: 0.85em;
+  opacity: 0.7;
+  margin-right: 1px;
+}
+.askcat-article-link:hover {
+  opacity: 0.8;
+}
+
+/* 消息底部操作行(复制、重试);默认透明度低,悬停气泡时显露 */
+.askcat-actions {
+  display: flex;
+  gap: 2px;
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border-color);
+  opacity: 0.4;
+  transition: opacity 0.2s ease;
+}
+.askcat-bubble:hover .askcat-actions {
+  opacity: 1;
+}
+.askcat-actions > button {
+  padding: 4px 7px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.askcat-actions > button:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+.askcat-actions > button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* 推理过程:字号小 + 颜色淡 + 半透明背景,跟正式答案明显分级 */
+.askcat-thinking {
+  margin-bottom: 0.8em;
+  padding: 0.4em 0.7em;
+  background-color: var(--bg-tertiary);
+  border-radius: 6px;
+  border-left: 2px solid var(--text-muted);
+  font-size: 0.9em;
+  color: var(--text-secondary);
+}
+.askcat-thinking > summary {
+  cursor: pointer;
+  font-weight: 500;
+  list-style: none;
+  user-select: none;
+  padding: 0.1em 0;
+}
+.askcat-thinking > summary::-webkit-details-marker { display: none; }
+.askcat-thinking > summary::before {
+  content: '▸ ';
+  display: inline-block;
+  transition: transform 0.15s ease;
+  color: var(--text-muted);
+}
+.askcat-thinking[open] > summary::before {
+  content: '▾ ';
+}
+.askcat-thinking-body {
+  margin-top: 0.5em;
+  padding-top: 0.4em;
+  border-top: 1px dashed var(--border-color);
+  line-height: 1.6;
+  font-style: italic;
+  opacity: 0.85;
+}
+.askcat-thinking-body > *:first-child { margin-top: 0; }
+.askcat-thinking-body > *:last-child { margin-bottom: 0; }
+.askcat-thinking-body p { margin: 0 0 0.5em 0; }

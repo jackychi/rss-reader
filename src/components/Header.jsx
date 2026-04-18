@@ -59,6 +59,24 @@ export default function Header({
   const [pairingMode, setPairingMode] = useState(false)
   const [pairingInput, setPairingInput] = useState('')
   const [copyFeedback, setCopyFeedback] = useState(false)
+  const [syncIdDraft, setSyncIdDraft] = useState(syncId || '')
+
+  // 外部 syncId prop 变化时(比如同步完成、disable 等),重置 draft 与之一致
+  useEffect(() => {
+    setSyncIdDraft(syncId || '')
+  }, [syncId])
+
+  const syncIdDraftTrimmed = syncIdDraft.trim()
+  const isSyncIdDirty = syncIdDraftTrimmed.length > 0 && syncIdDraftTrimmed !== (syncId || '')
+
+  const handleSaveSyncId = () => {
+    if (!isSyncIdDirty) return
+    const ok = confirm(
+      '切换到此 Sync ID 会立即同步:当前设备的数据会与新 ID 对应的远端数据合并(UNION),然后双向写入。\n\n确定切换?'
+    )
+    if (!ok) return
+    onPairSync?.(syncIdDraftTrimmed)
+  }
   const menuRef = useRef(null)
   const syncMenuRef = useRef(null)
 
@@ -297,20 +315,28 @@ export default function Header({
                   </div>
 
                   <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                    Sync ID(勿公开分享,等同密钥)
+                    Sync ID(勿公开分享,等同密钥;可编辑直接切换)
                   </div>
                   <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                    <code style={{
-                      flex: 1,
-                      padding: '6px 8px',
-                      fontSize: '11px',
-                      fontFamily: 'ui-monospace, monospace',
-                      backgroundColor: 'var(--bg-secondary)',
-                      border: '1px solid var(--border-color)',
-                      borderRadius: '4px',
-                      wordBreak: 'break-all',
-                      userSelect: 'all',
-                    }}>{syncId}</code>
+                    <input
+                      type="text"
+                      value={syncIdDraft}
+                      onChange={(e) => setSyncIdDraft(e.target.value)}
+                      spellCheck={false}
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      style={{
+                        flex: 1,
+                        padding: '6px 8px',
+                        fontSize: '11px',
+                        fontFamily: 'ui-monospace, monospace',
+                        backgroundColor: 'var(--bg-secondary)',
+                        border: `1px solid ${isSyncIdDirty ? 'var(--accent-color)' : 'var(--border-color)'}`,
+                        borderRadius: '4px',
+                        color: 'var(--text-primary)',
+                        outline: 'none',
+                      }}
+                    />
                     <button
                       onClick={handleCopySyncId}
                       title={copyFeedback ? '已复制' : '复制'}
@@ -319,6 +345,38 @@ export default function Header({
                       {copyFeedback ? <Check size={12} /> : <Copy size={12} />}
                     </button>
                   </div>
+                  {isSyncIdDirty && (
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                      <span style={{ flex: 1, fontSize: '11px', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                        切换到新 ID 会合并并同步
+                      </span>
+                      <button
+                        onClick={handleSaveSyncId}
+                        style={{
+                          padding: '4px 10px',
+                          border: 'none',
+                          borderRadius: '4px',
+                          backgroundColor: 'var(--accent-color)',
+                          color: '#fff',
+                          cursor: 'pointer',
+                          fontSize: '11px',
+                          fontWeight: 500,
+                        }}
+                      >保存</button>
+                      <button
+                        onClick={() => setSyncIdDraft(syncId || '')}
+                        style={{
+                          padding: '4px 10px',
+                          border: '1px solid var(--border-color)',
+                          borderRadius: '4px',
+                          backgroundColor: 'transparent',
+                          color: 'var(--text-secondary)',
+                          cursor: 'pointer',
+                          fontSize: '11px',
+                        }}
+                      >取消</button>
+                    </div>
+                  )}
 
                   <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
                     上次同步: {formatRelative(lastSyncedAt)}
@@ -359,6 +417,7 @@ export default function Header({
 
         {/* Ask Cat */}
         <button
+          data-askcat-toggle
           onClick={onToggleAskCat}
           style={{
             padding: '6px',

@@ -228,6 +228,24 @@ export async function saveReadStatusRecordsBatch(records) {
   }
 }
 
+// 按 id 查单篇文章(供 sync 模块从 articles store 回填 readingList 的 content)
+// id 格式跟 articles store 的 keyPath 一致:`${feedUrl}-${guid || link}`
+export async function getArticleById(id) {
+  try {
+    const db = await openDB()
+    const tx = db.transaction('articles', 'readonly')
+    const store = tx.objectStore('articles')
+    return new Promise((resolve, reject) => {
+      const request = store.get(id)
+      request.onsuccess = () => resolve(request.result || null)
+      request.onerror = () => reject(request.error)
+    })
+  } catch (error) {
+    console.error('[DB] Failed to get article by id:', error)
+    return null
+  }
+}
+
 // 获取所有已读记录(含 readAt 时间戳,供同步模块使用)
 // 跟 getAllReadStatus() 的区别:那个返回 {articleKey: true} map,这个返回原始记录数组
 export async function getAllReadStatusRecords() {
@@ -374,6 +392,67 @@ export async function isInReadingList(articleId) {
   }
 }
 
+// 清理孤儿:feedUrl 不在 validFeedUrls 集合里的 articles + feedMeta 记录
+// 使用场景:用户删除/OPML 导入覆盖了订阅源后,同步清理残留的缓存文章
+// 不动 readStatus 和 readingList——前者小成本留着,后者是用户显式收藏
+// 返回各 store 删除的条数 { articles, feedMeta }
+export async function pruneOrphanedArticles(validFeedUrls) {
+  const validSet = validFeedUrls instanceof Set ? validFeedUrls : new Set(validFeedUrls)
+  let articlesDeleted = 0
+  let feedMetaDeleted = 0
+
+  try {
+    const db = await openDB()
+
+    // 1. articles store:按 feedUrl 字段判断
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('articles', 'readwrite')
+      const store = tx.objectStore('articles')
+      const request = store.openCursor()
+      request.onsuccess = (e) => {
+        const cursor = e.target.result
+        if (cursor) {
+          const { feedUrl } = cursor.value
+          if (feedUrl && !validSet.has(feedUrl)) {
+            cursor.delete()
+            articlesDeleted++
+          }
+          cursor.continue()
+        }
+      }
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error)
+    })
+
+    // 2. feedMeta store:keyPath 就是 feedUrl
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('feedMeta', 'readwrite')
+      const store = tx.objectStore('feedMeta')
+      const request = store.openCursor()
+      request.onsuccess = (e) => {
+        const cursor = e.target.result
+        if (cursor) {
+          if (!validSet.has(cursor.key)) {
+            cursor.delete()
+            feedMetaDeleted++
+          }
+          cursor.continue()
+        }
+      }
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error)
+    })
+
+    if (articlesDeleted > 0 || feedMetaDeleted > 0) {
+      console.log(`[DB] Pruned ${articlesDeleted} orphaned articles, ${feedMetaDeleted} feedMeta entries`)
+    }
+  } catch (error) {
+    console.error('[DB] Prune failed:', error)
+  }
+
+  return { articles: articlesDeleted, feedMeta: feedMetaDeleted }
+}
+
 // 清理过期缓存（超过 7 天）
 export async function clearExpiredCache() {
   try {
@@ -452,6 +531,7 @@ export default {
   openDB,
   saveArticles,
   getArticles,
+  getArticleById,
   saveFeeds,
   getFeeds,
   saveReadStatus,
@@ -465,6 +545,7 @@ export default {
   getReadingList,
   isInReadingList,
   clearExpiredCache,
+  pruneOrphanedArticles,
   saveFeedMeta,
   getFeedMeta,
 }

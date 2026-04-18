@@ -8,7 +8,7 @@ import { defaultFeeds } from './data/defaultFeeds'
 import { useLocalStorage } from './hooks/useLocalStorage'
 import { useRSSFetcher } from './hooks/useRSSFetcher'
 import { useOnlineStatus } from './hooks/useOnlineStatus'
-import { saveArticles, getArticles, clearExpiredCache, saveToReadingList, removeFromReadingList, getReadingList, saveFeedMeta, getFeedMeta, getAllReadStatus, saveReadStatusBatch } from './utils/db'
+import { saveArticles, getArticles, clearExpiredCache, saveToReadingList, removeFromReadingList, getReadingList, saveFeedMeta, getFeedMeta, getAllReadStatus, saveReadStatusBatch, pruneOrphanedArticles } from './utils/db'
 import { getArticleKey } from './utils/articleKey'
 import { getSyncId, setSyncId, clearSyncId, generateSyncId, syncNow } from './utils/sync'
 import Header from './components/Header'
@@ -261,6 +261,25 @@ function App() {
     }
   }, [feeds, setExpandedCategories])
 
+  // ============ 清理被移除订阅源的缓存 ============
+  // feeds 变化时比对 IDB,清掉 articles + feedMeta 里不再订阅的 feedUrl 残留
+  // 同步收缩 unreadByFeed 的内存镜像,sidebar 的未读数马上反映新状态
+  useEffect(() => {
+    if (!feeds || feeds.length === 0) return
+    const validUrls = new Set(feeds.flatMap(cat => cat.feeds.map(f => f.xmlUrl)))
+    pruneOrphanedArticles(validUrls).then(({ articles, feedMeta }) => {
+      if (articles > 0 || feedMeta > 0) {
+        setUnreadByFeed(prev => {
+          const next = new Map()
+          for (const [feedUrl, set] of prev) {
+            if (validUrls.has(feedUrl)) next.set(feedUrl, set)
+          }
+          return next
+        })
+      }
+    }).catch(err => console.error('[App] prune orphaned failed:', err))
+  }, [feeds])
+
   // ============ 初始化已读状态 + 清理遗留的 localStorage 键 ============
   // articleCache 已迁到 feedMeta store,readStatus 已迁到 readStatus store
   // 这里做两件事:一次性把老用户的 localStorage readStatus 迁到 IDB,然后从
@@ -435,11 +454,22 @@ function App() {
       unreadByFeed.forEach(set => set.forEach(k => merged.add(k)))
       return merged
     }
+    if (selectedFeed?.xmlUrl?.startsWith('category:')) {
+      // 分类视图:该分类下所有 feed 的未读合集
+      const categoryObj = feeds.find(c => c.category === selectedFeed.category)
+      if (!categoryObj) return new Set()
+      const merged = new Set()
+      for (const feed of categoryObj.feeds) {
+        const set = unreadByFeed.get(feed.xmlUrl)
+        if (set) set.forEach(k => merged.add(k))
+      }
+      return merged
+    }
     if (selectedFeed?.xmlUrl) {
       return unreadByFeed.get(selectedFeed.xmlUrl) || new Set()
     }
     return new Set()
-  }, [selectedFeed, unreadByFeed])
+  }, [selectedFeed, unreadByFeed, feeds])
 
   // ============ 统一的标记已读 helper ============
   const markAsRead = useCallback((articleOrArticles) => {
@@ -632,31 +662,83 @@ function App() {
     }
   }, [createRequest, setArticles])
 
+  // 选中某个分类(folder):展示该分类下所有 feed 的缓存文章;refresh 会批量抓所有 feed
+  // 用 xmlUrl 前缀 `category:` 作为 sentinel,跟单 feed / "cached" 区分
+  const handleSelectCategory = useCallback(async (categoryName) => {
+    const currentId = createRequest()
+    requestIdRef.current = currentId
+    const categoryObj = feeds.find(c => c.category === categoryName)
+    if (!categoryObj) return
+
+    setSelectedFeed({
+      title: categoryName,
+      xmlUrl: `category:${categoryName}`,
+      category: categoryName,
+    })
+    setSelectedArticle(null)
+    setShowOriginal(false)
+    setShowReadingList(false)
+    setArticleSearchQuery('')
+    setIsFullscreen(false)
+
+    // 从 IDB 取全部文章,按分类下的 feedUrl 过滤
+    const feedUrls = new Set(categoryObj.feeds.map(f => f.xmlUrl))
+    const all = await getArticles()
+    if (currentId !== requestIdRef.current) return
+    const filtered = all
+      .filter(a => feedUrls.has(a.feedUrl))
+      .sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate))
+    setArticles(filtered)
+    // 不触发网络 fetch,保持跟 handleSelectFeed 一样的 SWR 哲学
+    // 用户想拉新数据就点中间栏刷新按钮,走 handleRefresh 的分类分支
+  }, [feeds, createRequest, setArticles])
+
   const handleRefresh = useCallback(async () => {
     if (!selectedFeed) return
     const currentId = createRequest()
     requestIdRef.current = currentId
     setIsRefreshing(true)
 
-    // 已缓存文章：从 IndexedDB 重新加载
-    if (selectedFeed.xmlUrl === 'cached') {
-      console.log('[App] Refreshing cached articles from IndexedDB')
-      const cachedArticles = await getArticles()
-      if (cachedArticles.length > 0) {
-        const sorted = cachedArticles.sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate))
-        setArticles(sorted)
+    try {
+      // 已缓存文章:从 IndexedDB 重新加载
+      if (selectedFeed.xmlUrl === 'cached') {
+        console.log('[App] Refreshing cached articles from IndexedDB')
+        const cachedArticles = await getArticles()
+        if (cachedArticles.length > 0) {
+          const sorted = cachedArticles.sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate))
+          setArticles(sorted)
+        }
+      } else if (selectedFeed.xmlUrl?.startsWith('category:')) {
+        // 分类视图:批量拉取该分类下所有 feed,拉完再从 IDB 过滤出该分类的完整列表
+        // 这样"历史缓存 + 新抓到的条目"一起展示,不会因刷新而"丢"掉旧的
+        const categoryObj = feeds.find(c => c.category === selectedFeed.category)
+        if (categoryObj) {
+          console.log('[App] Refreshing all feeds in category:', selectedFeed.category)
+          await fetchAllFeeds(categoryObj.feeds, currentId)
+          if (currentId !== requestIdRef.current) return
+          // 拉取完毕 → 重新从 IDB 按分类过滤,展示完整历史
+          const feedUrls = new Set(categoryObj.feeds.map(f => f.xmlUrl))
+          const all = await getArticles()
+          if (currentId !== requestIdRef.current) return
+          const filtered = all
+            .filter(a => feedUrls.has(a.feedUrl))
+            .sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate))
+          setArticles(filtered)
+        }
+      } else {
+        // 单个订阅源:正常刷新
+        await fetchAllFeeds([selectedFeed], currentId)
       }
-    } else {
-      // 其他订阅源：正常刷新
-      await fetchAllFeeds([selectedFeed], currentId)
+    } finally {
+      setIsRefreshing(false)
     }
-    setIsRefreshing(false)
-  }, [selectedFeed, createRequest, fetchAllFeeds, setArticles])
+  }, [selectedFeed, feeds, createRequest, fetchAllFeeds, setArticles])
 
-  // 标记当前订阅源(或"已缓存文章"视图下所有 feed)的未读文章为已读
+  // 标记当前订阅源(或 "已缓存文章" / 分类视图下所有 feed)的未读文章为已读
   // 直接从 unreadByFeed 里取 key,不需要回头扫 articles
   const handleMarkAllAsRead = useCallback(() => {
     const isAll = selectedFeed?.xmlUrl === 'cached'
+    const isCategory = selectedFeed?.xmlUrl?.startsWith('category:')
     const allKeys = []
     const feedsToClear = []
 
@@ -666,6 +748,15 @@ function App() {
         set.forEach(k => allKeys.push(k))
         feedsToClear.push(feedUrl)
       })
+    } else if (isCategory) {
+      const categoryObj = feeds.find(c => c.category === selectedFeed.category)
+      if (!categoryObj) return
+      for (const feed of categoryObj.feeds) {
+        const set = unreadByFeed.get(feed.xmlUrl)
+        if (!set || set.size === 0) continue
+        set.forEach(k => allKeys.push(k))
+        feedsToClear.push(feed.xmlUrl)
+      }
     } else {
       const feedUrl = selectedFeed?.xmlUrl
       const set = feedUrl ? unreadByFeed.get(feedUrl) : null
@@ -690,7 +781,7 @@ function App() {
     saveReadStatusBatch(allKeys).catch(err =>
       console.error('[App] mark all as read IDB write failed:', err)
     )
-  }, [selectedFeed, unreadByFeed])
+  }, [selectedFeed, unreadByFeed, feeds])
 
   // 切换文章书签状态
   const handleToggleArticleBookmark = useCallback(async () => {
@@ -881,6 +972,7 @@ function App() {
             onToggleCategory={toggleCategory}
             onSelectFeed={handleSelectFeed}
             onSelectAll={handleSelectAll}
+            onSelectCategory={handleSelectCategory}
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
             unreadCounts={unreadCounts}
@@ -951,6 +1043,7 @@ function App() {
         isOpen={isAskCatOpen}
         onClose={() => setIsAskCatOpen(false)}
         articles={articles}
+        selectedArticle={selectedArticle}
         onOpenArticle={handleOpenArticleFromAskCat}
       />
     </div>

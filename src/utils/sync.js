@@ -17,6 +17,7 @@ import {
   saveReadStatusRecordsBatch,
   getReadingList,
   saveToReadingList,
+  getArticleById,
 } from './db'
 
 const SYNC_ENDPOINT = `${CORS_WORKER_URL}/sync`
@@ -97,6 +98,37 @@ async function readLocal() {
   return { version: SYNC_VERSION, updatedAt: Date.now(), readStatus, readingList }
 }
 
+// push 前剥离 readingList 里的 content / contentSnippet 字段
+// 原因:单篇带图长文的 content HTML 很容易 200-500KB,几条就突破 KV 的 payload 上限
+// 本地 IDB 不动,内容依然能从本地 articles store(按 id = articleKey)回填
+function stripReadingListForWire(list) {
+  return list.map((item) => {
+    // 结构化克隆排除 content,其他字段原样保留
+    // eslint-disable-next-line no-unused-vars
+    const { content, contentSnippet, ...rest } = item
+    return rest
+  })
+}
+
+// 从 articles store 按 id 找文章,有 content 的话拿来丰富 readingList 条目
+// 同一设备既订阅着对应 feed 又逛过相关文章时,articles store 里就有这篇
+async function enrichReadingListWithContent(list) {
+  return Promise.all(list.map(async (item) => {
+    if (item.content) return item // 本地已有,不动
+    try {
+      const article = await getArticleById(item.id)
+      if (article?.content) {
+        return {
+          ...item,
+          content: article.content,
+          contentSnippet: article.contentSnippet || '',
+        }
+      }
+    } catch { /* 回填失败不算错,保持 item 不变 */ }
+    return item
+  }))
+}
+
 async function writeLocal(merged) {
   await Promise.all([
     saveReadStatusRecordsBatch(merged.readStatus),
@@ -135,14 +167,23 @@ export async function syncNow(id) {
   const [remote, local] = await Promise.all([pullRemote(id), readLocal()])
   const merged = mergeStates(local, remote)
 
+  // 两份 readingList 拷贝:
+  //   - forWire:发往服务器,剥 content 减 payload
+  //   - enrichedList:写本地,尝试从 articles store 回填缺失 content
+  const forWire = {
+    ...merged,
+    readingList: stripReadingListForWire(merged.readingList),
+  }
+  const enrichedList = await enrichReadingListWithContent(merged.readingList)
+
   await Promise.all([
-    pushRemote(id, merged),
-    writeLocal(merged),
+    pushRemote(id, forWire),
+    writeLocal({ ...merged, readingList: enrichedList }),
   ])
 
   return {
     readSet: new Set(merged.readStatus.map((r) => r.articleKey)),
-    readingList: merged.readingList,
+    readingList: enrichedList,
     merged,
   }
 }

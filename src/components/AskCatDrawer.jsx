@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
-import { MessageCircle, Settings, X, Send, Cat, Loader2 } from 'lucide-react'
+import { MessageCircle, Settings, X, Send, Cat, Loader2, Copy, RotateCcw, Check } from 'lucide-react'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import {
@@ -18,14 +18,46 @@ const STARTER_PROMPTS = [
   '哪些文章在讨论订阅模式?',
 ]
 
+// 抽屉宽度可拖拽 + 持久化
+const DRAWER_WIDTH_KEY = 'rss-reader-askcat-width'
+const DRAWER_DEFAULT_WIDTH = 432   // 原 360 × 1.2
+const DRAWER_MIN_WIDTH = 280       // 太窄聊天气泡会变丑
+const DRAWER_MAX_WIDTH_RATIO = 0.8 // 最多占视口 80%,给左边留空
+
+function getStoredDrawerWidth() {
+  try {
+    const raw = localStorage.getItem(DRAWER_WIDTH_KEY)
+    const n = Number(raw)
+    if (Number.isFinite(n) && n >= DRAWER_MIN_WIDTH) return n
+  } catch { /* ignore */ }
+  return DRAWER_DEFAULT_WIDTH
+}
+
+// 中西文之间自动插入空格(Pangu spacing 风格,最小实现)
+// CJK Unified Ideographs 和半角字母/数字相邻时,中间加个空格
+// 放在 markdown 源上做,marked 后的 HTML tag 不会被误加空格
+function addCJKSpacing(text) {
+  if (!text) return text
+  return text
+    .replace(/([\u4e00-\u9fa5\u3040-\u309f\u30a0-\u30ff])([A-Za-z0-9])/g, '$1 $2')
+    .replace(/([A-Za-z0-9])([\u4e00-\u9fa5\u3040-\u309f\u30a0-\u30ff])/g, '$1 $2')
+}
+
 // 把 LLM 返回的 markdown content 渲染成可交互的 HTML:
-//   1. 在 markdown 源上把 [N] / [N,M] 替换成 [link](#article-N,M) 形式
-//   2. marked → HTML
-//   3. DOMPurify sanitize(允许 data-* 透传)
-//   4. 把 href="#article-X" 的 a 改写成带 data-article-id 的,便于点击委托
-// 以上顺序保证 LLM 再恶意的输出也过不了 sanitize 这一关
-function renderAssistantHTML(content) {
-  const withCitations = content.replace(/\[(\d+(?:\s*,\s*\d+)*)\]/g, (_match, ids) => {
+//   1. CJK-Latin 自动空格
+//   2. 把 [N] / [N,M] 替换成 [link](#article-N,M) 形式,marked 才会识别成 <a>
+//   3. marked → HTML
+//   4. DOMPurify sanitize(允许 data-* / target / rel 透传)
+//   5. href="#article-X" 的 a 改写成带 data-article-id 的 citation 链接
+//   6. 其他 http(s) 链接分两种处理:
+//      - URL 命中 articleLinks(本次 context 里某篇文章的 link)→ 加 data-article-link,
+//        点击在 Reader 里打开
+//      - 其他 → target="_blank" + rel="noopener noreferrer" 外部打开
+// 顺序保证 LLM 再恶意输出都过不了 DOMPurify 这一关
+function renderAssistantHTML(content, articleLinks = null) {
+  const spaced = addCJKSpacing(content)
+
+  const withCitations = spaced.replace(/\[(\d+(?:\s*,\s*\d+)*)\]/g, (_match, ids) => {
     const cleaned = ids.replace(/\s+/g, '')
     return `[${cleaned}](#article-${cleaned})`
   })
@@ -33,24 +65,77 @@ function renderAssistantHTML(content) {
   const html = marked.parse(withCitations, { breaks: true, gfm: true })
 
   const sanitized = DOMPurify.sanitize(html, {
-    ADD_ATTR: ['data-article-id', 'target', 'rel'],
+    ADD_ATTR: ['data-article-id', 'data-article-link', 'target', 'rel'],
   })
 
-  return sanitized.replace(
+  // citation 链接特殊改写(#article-N → data-article-id)
+  const withCitationAttrs = sanitized.replace(
     /<a([^>]*?)href="#article-([\d,]+)"([^>]*?)>/g,
     '<a$1data-article-id="$2"$3 class="askcat-citation">'
   )
+
+  // http(s) 链接分流:本知识库里的 article → Reader;其他 → 新标签页
+  return withCitationAttrs.replace(
+    /<a([^>]*?)href="(https?:\/\/[^"]+)"([^>]*?)>/g,
+    (match, pre, href, post) => {
+      if (/target=/.test(match) || /data-article-link=/.test(match)) return match
+      if (articleLinks && articleLinks.has(href)) {
+        // 知识库里有这篇 → 点击走 Reader;不加 target,不加 rel,不加 citation 样式
+        return `<a${pre}href="${href}"${post} data-article-link="${href}" class="askcat-article-link">`
+      }
+      // 外链:防 tabnabbing + 新标签页
+      return `<a${pre}href="${href}"${post} target="_blank" rel="noopener noreferrer">`
+    }
+  )
 }
 
-export default function AskCatDrawer({ isOpen, onClose, articles, onOpenArticle }) {
+export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticle, onOpenArticle }) {
   const [showSettings, setShowSettings] = useState(false)
   const [config, setConfig] = useState(() => getLLMConfig())
   const [messages, setMessages] = useState([]) // {role: 'user'|'assistant', content, isError?}
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [contextByIdRef] = useState(() => ({ current: new Map() }))
+  const [contextByLinkRef] = useState(() => ({ current: new Map() }))
+  const [drawerWidth, setDrawerWidth] = useState(() => getStoredDrawerWidth())
   const messagesEndRef = useRef(null)
   const textareaRef = useRef(null)
+  const drawerRef = useRef(null)
+  const prevIsOpenRef = useRef(isOpen)
+
+  // 拖拽左边缘调整抽屉宽度
+  // 鼠标左移 → 宽度增大(起点右 - 当前点 = 正 delta)
+  // mouseup 时一次性写 localStorage,避免拖动过程中频繁落盘
+  const startResizing = useCallback((e) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startWidth = drawerWidth
+    let latestWidth = startWidth
+
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+
+    const onMove = (ev) => {
+      const delta = startX - ev.clientX
+      const maxWidth = window.innerWidth * DRAWER_MAX_WIDTH_RATIO
+      const next = Math.max(DRAWER_MIN_WIDTH, Math.min(maxWidth, startWidth + delta))
+      latestWidth = next
+      setDrawerWidth(next)
+    }
+
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      try {
+        localStorage.setItem(DRAWER_WIDTH_KEY, String(Math.round(latestWidth)))
+      } catch { /* ignore */ }
+    }
+
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }, [drawerWidth])
 
   const configValid = isConfigValid(config)
 
@@ -59,11 +144,31 @@ export default function AskCatDrawer({ isOpen, onClose, articles, onOpenArticle 
     if (showSettings) setDraft(config)
   }, [showSettings, config])
 
+  // 抽屉每次"从关 → 开"时,按配置状态决定初始视图
+  //   - 未配置 LLM → 自动进 Settings
+  //   - 已配置 → 一定重置成 Chat 视图(避免上次遗留的 Settings 状态污染)
+  // 关键:不在抽屉已打开时修改 showSettings,尊重用户手动切设置的意图
   useEffect(() => {
-    if (isOpen && !configValid && messages.length === 0) {
-      setShowSettings(true)
+    const wasClosed = !prevIsOpenRef.current
+    prevIsOpenRef.current = isOpen
+    if (isOpen && wasClosed) {
+      setShowSettings(!configValid)
     }
-  }, [isOpen, configValid, messages.length])
+  }, [isOpen, configValid])
+
+  // Outside-click 关抽屉(只在抽屉打开时挂 listener)
+  // mousedown 而非 click:抢在 React click handler 之前决定关抽屉
+  // 例外:点 Header 的 Ask Cat toggle 按钮不算 outside,否则按钮会"先关再开"失灵
+  useEffect(() => {
+    if (!isOpen) return
+    const handleDocMouseDown = (e) => {
+      if (drawerRef.current?.contains(e.target)) return
+      if (e.target.closest?.('[data-askcat-toggle]')) return
+      onClose()
+    }
+    document.addEventListener('mousedown', handleDocMouseDown)
+    return () => document.removeEventListener('mousedown', handleDocMouseDown)
+  }, [isOpen, onClose])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -81,42 +186,44 @@ export default function AskCatDrawer({ isOpen, onClose, articles, onOpenArticle 
     setShowSettings(false)
   }
 
-  const handleSend = useCallback(async (overrideInput) => {
-    const question = (overrideInput ?? input).trim()
-    if (!question || isLoading) return
-
+  // 核心:给定 question + 显式 history → 调 LLM → 把 assistant 回复 append 到 messages
+  // 用户说话那一条不在这函数职责范围,调用方自己 setMessages 先加 user 条目
+  const sendToLLM = useCallback(async (question, historyToUse) => {
     if (!configValid) {
       setShowSettings(true)
       return
     }
-
     if (!articles || articles.length === 0) {
       setMessages((prev) => [
         ...prev,
-        { role: 'user', content: question },
         { role: 'assistant', content: '本地还没有缓存的文章。先点左边的订阅源加载一下,再回来问我吧 🐱' },
       ])
-      setInput('')
       return
     }
 
     const { items, byId } = buildContextArticles(articles, config.contextSize)
     contextByIdRef.current = byId
+    const byLink = new Map()
+    for (const article of byId.values()) {
+      if (article.link) byLink.set(article.link, article)
+    }
+    contextByLinkRef.current = byLink
 
-    const history = messages.map((m) => ({ role: m.role, content: m.content }))
     const llmMessages = buildMessages({
       contextArticles: items,
-      history,
+      history: historyToUse,
       userQuestion: question,
+      currentArticle: selectedArticle || null,
     })
 
-    setMessages((prev) => [...prev, { role: 'user', content: question }])
-    setInput('')
     setIsLoading(true)
-
     try {
       const reply = await callLLM(llmMessages, config)
-      setMessages((prev) => [...prev, { role: 'assistant', content: reply }])
+      setMessages((prev) => [...prev, {
+        role: 'assistant',
+        content: reply.content,
+        reasoning: reply.reasoning || '',
+      }])
     } catch (err) {
       console.error('[AskCat] LLM call failed:', err)
       setMessages((prev) => [
@@ -126,21 +233,62 @@ export default function AskCatDrawer({ isOpen, onClose, articles, onOpenArticle 
     } finally {
       setIsLoading(false)
     }
-  }, [input, isLoading, configValid, articles, config, messages, contextByIdRef])
+  }, [configValid, articles, config, selectedArticle, contextByIdRef, contextByLinkRef])
+
+  const handleSend = useCallback(async (overrideInput) => {
+    const question = (overrideInput ?? input).trim()
+    if (!question || isLoading) return
+    // 先把当前 messages 快照成 history,再 setMessages 加 user(避免 LLM history 里混 user 自己)
+    const history = messages.map((m) => ({ role: m.role, content: m.content }))
+    setMessages((prev) => [...prev, { role: 'user', content: question }])
+    setInput('')
+    await sendToLLM(question, history)
+  }, [input, isLoading, messages, sendToLLM])
+
+  // 重试某条 assistant 消息:找到前一个 user,砍掉 assistant 和之后的,用相同 question 重新 LLM
+  const handleRetryMessage = useCallback(async (index) => {
+    if (isLoading) return
+    const msg = messages[index]
+    if (!msg || msg.role !== 'assistant') return
+    let userMsgIdx = -1
+    for (let i = index - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') { userMsgIdx = i; break }
+    }
+    if (userMsgIdx === -1) return
+    const userQuestion = messages[userMsgIdx].content
+    const historyToUse = messages.slice(0, userMsgIdx).map(m => ({ role: m.role, content: m.content }))
+    setMessages(prev => prev.slice(0, userMsgIdx + 1))
+    await sendToLLM(userQuestion, historyToUse)
+  }, [messages, isLoading, sendToLLM])
 
   const handleListClick = useCallback((e) => {
-    const a = e.target.closest?.('a[data-article-id]')
-    if (!a) return
-    e.preventDefault()
-    const ids = a.getAttribute('data-article-id').split(',').map((n) => parseInt(n, 10))
-    for (const id of ids) {
-      const article = contextByIdRef.current.get(id)
-      if (article && onOpenArticle) {
-        onOpenArticle(article)
-        return
+    // citation [N] 点击 → 通过 id 查 context 里的 article
+    const citation = e.target.closest?.('a[data-article-id]')
+    if (citation) {
+      e.preventDefault()
+      const ids = citation.getAttribute('data-article-id').split(',').map((n) => parseInt(n, 10))
+      for (const id of ids) {
+        const article = contextByIdRef.current.get(id)
+        if (article && onOpenArticle) {
+          onOpenArticle(article)
+          return
+        }
       }
+      return
     }
-  }, [contextByIdRef, onOpenArticle])
+
+    // 本知识库里文章的普通 URL 链接 → 通过 link 查 article,打开 Reader
+    const articleLink = e.target.closest?.('a[data-article-link]')
+    if (articleLink) {
+      const href = articleLink.getAttribute('data-article-link')
+      const article = contextByLinkRef.current.get(href)
+      if (article && onOpenArticle) {
+        e.preventDefault()
+        onOpenArticle(article)
+      }
+      // 查不到就走默认行为(不加 target,当前页会跳走——罕见 edge case,不特殊处理)
+    }
+  }, [contextByIdRef, contextByLinkRef, onOpenArticle])
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -156,12 +304,13 @@ export default function AskCatDrawer({ isOpen, onClose, articles, onOpenArticle 
 
   return (
     <aside
+      ref={drawerRef}
       style={{
         position: 'fixed',
         top: 0,
         right: 0,
         bottom: 0,
-        width: 'min(360px, 100vw)',
+        width: `min(${drawerWidth}px, 100vw)`,
         backgroundColor: 'var(--bg-primary)',
         borderLeft: '1px solid var(--border-color)',
         boxShadow: isOpen ? '-4px 0 16px var(--shadow-color)' : 'none',
@@ -173,6 +322,23 @@ export default function AskCatDrawer({ isOpen, onClose, articles, onOpenArticle 
         color: 'var(--text-primary)',
       }}
     >
+      {/* 左边缘拖拽手柄 - 4px 宽,hover 时显示 accent 颜色提示可拖 */}
+      <div
+        onMouseDown={startResizing}
+        title="拖拽调整宽度"
+        style={{
+          position: 'absolute',
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: '4px',
+          cursor: 'col-resize',
+          backgroundColor: 'transparent',
+          zIndex: 1,
+        }}
+        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--accent-color)'}
+        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+      />
       <div style={{
         display: 'flex',
         alignItems: 'center',
@@ -235,7 +401,14 @@ export default function AskCatDrawer({ isOpen, onClose, articles, onOpenArticle 
               <EmptyState onPrompt={(p) => handleSend(p)} disabled={!configValid || !articles?.length} />
             ) : (
               messages.map((m, idx) => (
-                <MessageBubble key={idx} message={m} />
+                <MessageBubble
+                  key={idx}
+                  index={idx}
+                  message={m}
+                  articleLinks={contextByLinkRef.current}
+                  onRetry={handleRetryMessage}
+                  isLoading={isLoading}
+                />
               ))
             )}
             {isLoading && (
@@ -335,21 +508,52 @@ function EmptyState({ onPrompt, disabled }) {
   )
 }
 
-// Assistant 气泡通过 ref + useEffect 写 innerHTML,而不是 React dangerouslySetInnerHTML
-// prop,语义等价但绕开某些 lint/hook 的字符串匹配告警
-function MessageBubble({ message }) {
+// 通用:把 markdown 内容通过 ref + useEffect 挂到 div 的 innerHTML
+// (语义等价于 React 的 dangerouslySetInnerHTML,但绕开部分 lint/hook 的字符串匹配)
+function RichContent({ html, className, style }) {
+  const ref = useRef(null)
+  useEffect(() => {
+    if (ref.current) ref.current.innerHTML = html
+  }, [html])
+  return <div ref={ref} className={className} style={style} />
+}
+
+function MessageBubble({ message, articleLinks, index, onRetry, isLoading }) {
   const isUser = message.role === 'user'
-  const contentRef = useRef(null)
-  const html = useMemo(
-    () => (isUser ? null : renderAssistantHTML(message.content)),
-    [isUser, message.content]
+  const [copyDone, setCopyDone] = useState(false)
+
+  const contentHTML = useMemo(
+    () => (isUser ? null : renderAssistantHTML(message.content || '', articleLinks)),
+    [isUser, message.content, articleLinks]
+  )
+  const reasoningHTML = useMemo(
+    () => (isUser || !message.reasoning ? null : renderAssistantHTML(message.reasoning, articleLinks)),
+    [isUser, message.reasoning, articleLinks]
   )
 
-  useEffect(() => {
-    if (!isUser && contentRef.current && html !== null) {
-      contentRef.current.innerHTML = html
+  // 复制富文本:优先 text/html + text/plain 双写入,粘到富文本编辑器(文档/邮件)保留格式
+  // Safari/老 Firefox 没 ClipboardItem 时降级到纯文本
+  const handleCopy = async () => {
+    if (isUser) return
+    const html = contentHTML || ''
+    const plain = message.content || ''
+    try {
+      if (navigator.clipboard && typeof window.ClipboardItem !== 'undefined') {
+        await navigator.clipboard.write([
+          new window.ClipboardItem({
+            'text/html': new Blob([html], { type: 'text/html' }),
+            'text/plain': new Blob([plain], { type: 'text/plain' }),
+          }),
+        ])
+      } else if (navigator.clipboard) {
+        await navigator.clipboard.writeText(plain)
+      }
+      setCopyDone(true)
+      setTimeout(() => setCopyDone(false), 1500)
+    } catch (err) {
+      console.error('[AskCat] copy failed:', err)
     }
-  }, [isUser, html])
+  }
 
   if (isUser) {
     return (
@@ -370,20 +574,40 @@ function MessageBubble({ message }) {
   }
 
   return (
-    <div style={{ alignSelf: 'flex-start', maxWidth: '95%' }}>
-      <div
-        ref={contentRef}
-        className="askcat-assistant"
-        style={{
-          backgroundColor: message.isError ? '#fee2e2' : 'var(--bg-secondary)',
-          color: message.isError ? '#991b1b' : 'var(--text-primary)',
-          padding: '10px 12px',
-          borderRadius: '12px',
-          fontSize: '13px',
-          lineHeight: 1.6,
-          wordBreak: 'break-word',
-        }}
-      />
+    <div
+      className="askcat-bubble"
+      style={{
+        alignSelf: 'flex-start',
+        maxWidth: '95%',
+        backgroundColor: message.isError ? '#fee2e2' : 'var(--bg-secondary)',
+        color: message.isError ? '#991b1b' : 'var(--text-primary)',
+        padding: '10px 12px',
+        borderRadius: '12px',
+        fontSize: '13px',
+        lineHeight: 1.7,
+        wordBreak: 'break-word',
+      }}
+    >
+      {/* 推理过程:默认折叠,点 summary 展开 */}
+      {reasoningHTML && (
+        <details className="askcat-thinking">
+          <summary>💭 推理过程</summary>
+          <RichContent html={reasoningHTML} className="askcat-thinking-body" />
+        </details>
+      )}
+      {/* 正式答案 */}
+      <RichContent html={contentHTML} className="askcat-answer" />
+      {/* 底部操作:复制(富文本)+ 重新生成 */}
+      <div className="askcat-actions">
+        <button onClick={handleCopy} disabled={isLoading} title="复制(富文本)">
+          {copyDone ? <Check size={12} /> : <Copy size={12} />}
+        </button>
+        {onRetry && (
+          <button onClick={() => onRetry(index)} disabled={isLoading} title="重新生成">
+            <RotateCcw size={12} />
+          </button>
+        )}
+      </div>
     </div>
   )
 }
@@ -446,12 +670,12 @@ function SettingsPanel({ draft, onChange, onSave, onCancel }) {
         <input
           type="range"
           min="5"
-          max="50"
+          max="200"
           value={draft.contextSize}
           onChange={(e) => onChange({ ...draft, contextSize: Number(e.target.value) })}
         />
         <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>
-          每次 query 会把最近这么多篇文章塞进 prompt。越多上下文越全,但 token 消耗越大。
+          每次 query 会把最近这么多篇文章塞进 prompt。越多上下文越全,但 token 消耗越大。200 篇约 10K tokens,主流 LLM 还留很多余量。
         </span>
       </label>
 

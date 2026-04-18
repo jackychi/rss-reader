@@ -10,7 +10,10 @@ const CORS_HEADERS = {
   'Access-Control-Max-Age': '86400',
 }
 
-const MAX_SYNC_PAYLOAD = 1024 * 1024 // 1 MB,够 1 年重度用户
+// 客户端会剥离 readingList 里的 content 字段,实际 payload 通常 < 100KB;
+// 预留 5MB 应对异常大的 readStatus(几十万条)或客户端意外未剥离
+// KV 单 key 上限 25MB,5MB 还有 5x 余量
+const MAX_SYNC_PAYLOAD = 5 * 1024 * 1024
 const SYNC_KEY_RE = /^[a-zA-Z0-9-]{32,128}$/
 
 export default {
