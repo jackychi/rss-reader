@@ -28,3 +28,8 @@ coverage
 
 # Serena (AI assistant)
 .serena/
+
+# Marp 渲染产物(由 docs/*.md 源文件按需生成,不入库)
+docs/*.html
+docs/*.pdf
+docs/*.pptx
