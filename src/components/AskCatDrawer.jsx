@@ -65,16 +65,17 @@ function renderAssistantHTML(content, articleLinks = null) {
     return `[${cleaned}](#article-${cleaned})`
   })
 
-  const html = marked.parse(withCitations, { breaks: true, gfm: true })
+  const html = marked.parse(withCitations, { breaks: false, gfm: true })
 
   const sanitized = DOMPurify.sanitize(html, {
     ADD_ATTR: ['data-article-id', 'data-article-link', 'target', 'rel'],
   })
 
-  // citation 链接特殊改写(#article-N → data-article-id)
+  // citation 链接特殊改写(#article-N → 保留 href + 加 data-article-id)
+  // 保留 href 使复制到外部富文本编辑器后仍可点击，JS 点击拦截走 onOpenArticle
   const withCitationAttrs = sanitized.replace(
     /<a([^>]*?)href="#article-([\d,]+)"([^>]*?)>/g,
-    '<a$1data-article-id="$2"$3 class="askcat-citation">'
+    '<a$1href="#article-$2" data-article-id="$2"$3 class="askcat-citation">'
   )
 
   // http(s) 链接分流:本知识库里的 article → Reader;其他 → 新标签页
