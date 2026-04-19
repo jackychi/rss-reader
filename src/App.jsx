@@ -998,9 +998,9 @@ function App() {
     { key: 'r',       group: '状态', description: '刷新当前',       handler: handleRefresh },
     { key: 'Shift+A', group: '状态', description: '标记全部已读',   handler: handleMarkAllAsRead },
 
-    // 视图
-    { key: 'f',       group: '视图', description: '切换全屏',       handler: toggleFullscreen },
-    { key: 'v',       group: '视图', description: '切换原文 iframe', handler: () => toggleOriginal(!showOriginal) },
+    // 视图(f / v 只对"已打开的文章"有意义,没选中时 no-op)
+    { key: 'f',       group: '视图', description: '切换全屏',       handler: () => { if (selectedArticle) toggleFullscreen() } },
+    { key: 'v',       group: '视图', description: '切换原文 iframe', handler: () => { if (selectedArticle) toggleOriginal(!showOriginal) } },
     { key: 'Escape',  group: '视图', description: '关闭 / 退出',     handler: handleEscape },
 
     // 跳转(chord)
@@ -1017,7 +1017,7 @@ function App() {
     handleToggleArticleBookmark, handleRefresh, handleMarkAllAsRead,
     toggleFullscreen, toggleOriginal, showOriginal, handleEscape,
     handleSelectAll, handleToggleReadingList, showReadingList,
-    handleFocusSidebarSearch,
+    handleFocusSidebarSearch, selectedArticle,
   ])
 
   useKeyboardShortcuts(SHORTCUTS)

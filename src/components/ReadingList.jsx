@@ -1,4 +1,5 @@
-import { FileText, Trash2, ExternalLink } from 'lucide-react'
+import { useState, useRef, useEffect } from 'react'
+import { FileText, Link2, BookmarkCheck, MoreHorizontal, Copy, Check, Send } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 
@@ -52,131 +53,196 @@ export default function ReadingList({
           const isSelected = articleKey === selectedKey
 
           return (
-            <div
+            <ReadingListCard
               key={articleKey}
-              onClick={() => onSelectArticle(article)}
-              style={{
-                padding: '14px 16px',
-                borderBottom: '1px solid var(--border-color)',
-                cursor: 'pointer',
-                backgroundColor: isSelected ? 'var(--bg-tertiary)' : 'transparent',
-                transition: 'background-color 0.15s ease'
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = isSelected ? 'var(--bg-tertiary)' : 'var(--bg-secondary)'}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = isSelected ? 'var(--bg-tertiary)' : 'transparent'
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
-                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{article.feedTitle}</span>
-                <span style={{ color: 'var(--text-muted)' }}>·</span>
-                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                  {article.savedAt
-                    ? `${formatDistanceToNow(new Date(article.savedAt), { addSuffix: true, locale: zhCN })} 保存`
-                    : formatDate(article.isoDate)
-                  }
-                </span>
-              </div>
-              <h3 style={{
-                fontSize: '15px',
-                fontWeight: 600,
-                color: 'var(--text-primary)',
-                marginBottom: '8px',
-                lineHeight: 1.4
-              }}>
-                {article.title}
-              </h3>
-              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                {article.contentSnippet && (
-                  <p style={{
-                    flex: 1,
-                    fontSize: '13px',
-                    color: 'var(--text-secondary)',
-                    lineHeight: 1.5,
-                    overflow: 'hidden',
-                    display: '-webkit-box',
-                    WebkitLineClamp: 2,
-                    WebkitBoxOrient: 'vertical'
-                  }}>{article.contentSnippet}</p>
-                )}
-                {getArticleImage(article) && (
-                  <img
-                    src={getArticleImage(article)}
-                    alt=""
-                    style={{ width: '60px', height: '60px', objectFit: 'cover', borderRadius: '6px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', flexShrink: 0 }}
-                    onError={(e) => e.target.style.display = 'none'}
-                  />
-                )}
-              </div>
-              <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onSelectArticle(article)
-                  }}
-                  style={{
-                    padding: '4px 10px',
-                    borderRadius: '4px',
-                    border: '1px solid var(--border-color)',
-                    backgroundColor: 'var(--bg-tertiary)',
-                    color: 'var(--text-secondary)',
-                    cursor: 'pointer',
-                    fontSize: '12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                  }}
-                >
-                  阅读
-                </button>
-                <a
-                  href={article.link}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={(e) => e.stopPropagation()}
-                  style={{
-                    padding: '4px 10px',
-                    borderRadius: '4px',
-                    border: '1px solid var(--border-color)',
-                    backgroundColor: 'var(--bg-tertiary)',
-                    color: 'var(--text-secondary)',
-                    cursor: 'pointer',
-                    fontSize: '12px',
-                    textDecoration: 'none',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                  }}
-                >
-                  原文
-                  <ExternalLink size={12} />
-                </a>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onRemoveArticle(articleKey)
-                  }}
-                  style={{
-                    padding: '4px 10px',
-                    borderRadius: '4px',
-                    border: '1px solid var(--border-color)',
-                    backgroundColor: 'var(--bg-tertiary)',
-                    color: 'var(--text-secondary)',
-                    cursor: 'pointer',
-                    fontSize: '12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    marginLeft: 'auto'
-                  }}
-                >
-                  <Trash2 size={12} />
-                </button>
-              </div>
-            </div>
+              article={article}
+              articleKey={articleKey}
+              isSelected={isSelected}
+              onSelectArticle={onSelectArticle}
+              onRemoveArticle={onRemoveArticle}
+              getArticleImage={getArticleImage}
+              formatDate={formatDate}
+            />
           )
         })}
       </div>
     </main>
+  )
+}
+
+// 卡片子组件:把菜单状态 + 复制反馈隔离在单卡片里,避免父组件管理全局 state
+function ReadingListCard({
+  article,
+  articleKey,
+  isSelected,
+  onSelectArticle,
+  onRemoveArticle,
+  getArticleImage,
+  formatDate,
+}) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const menuRef = useRef(null)
+
+  // 点菜单外关闭
+  useEffect(() => {
+    if (!menuOpen) return
+    const onDocClick = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onDocClick)
+    return () => document.removeEventListener('mousedown', onDocClick)
+  }, [menuOpen])
+
+  const handleCopyLink = async (e) => {
+    e.stopPropagation()
+    try {
+      await navigator.clipboard.writeText(article.link || '')
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch (err) {
+      console.error('[ReadingList] copy failed:', err)
+    }
+    setMenuOpen(false)
+  }
+
+  return (
+    <div
+      onClick={() => onSelectArticle(article)}
+      style={{
+        padding: '14px 16px',
+        borderBottom: '1px solid var(--border-color)',
+        cursor: 'pointer',
+        backgroundColor: isSelected ? 'var(--bg-tertiary)' : 'transparent',
+        transition: 'background-color 0.15s ease',
+      }}
+      onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = isSelected ? 'var(--bg-tertiary)' : 'var(--bg-secondary)')}
+      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = isSelected ? 'var(--bg-tertiary)' : 'transparent' }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
+        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{article.feedTitle}</span>
+        <span style={{ color: 'var(--text-muted)' }}>·</span>
+        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+          {article.savedAt
+            ? `${formatDistanceToNow(new Date(article.savedAt), { addSuffix: true, locale: zhCN })} 保存`
+            : formatDate(article.isoDate)
+          }
+        </span>
+      </div>
+      <h3 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px', lineHeight: 1.4 }}>
+        {article.title}
+      </h3>
+      <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+        {article.contentSnippet && (
+          <p style={{
+            flex: 1, fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5,
+            overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+          }}>{article.contentSnippet}</p>
+        )}
+        {getArticleImage(article) && (
+          <img
+            src={getArticleImage(article)}
+            alt=""
+            style={{ width: '60px', height: '60px', objectFit: 'cover', borderRadius: '6px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', flexShrink: 0 }}
+            onError={(e) => (e.target.style.display = 'none')}
+          />
+        )}
+      </div>
+
+      {/* 底部操作栏 */}
+      {/* 左:链接 + 书签(已收藏,点取消);右:三点下拉(复制链接 / 转发到墨问) */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '10px' }}>
+        {/* 左侧图标组 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <a
+            href={article.link}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            title="打开原文"
+            style={{
+              padding: '6px', borderRadius: '6px', color: 'var(--text-muted)',
+              cursor: 'pointer', display: 'inline-flex', alignItems: 'center',
+              transition: 'background-color 0.15s ease, color 0.15s ease',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-secondary)'; e.currentTarget.style.color = 'var(--text-primary)' }}
+            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = 'var(--text-muted)' }}
+          >
+            <Link2 size={16} />
+          </a>
+          <button
+            onClick={(e) => { e.stopPropagation(); onRemoveArticle(articleKey) }}
+            title="从阅读列表移除"
+            style={{
+              padding: '6px', borderRadius: '6px', border: 'none',
+              backgroundColor: 'transparent', color: 'var(--accent-color)',
+              cursor: 'pointer', display: 'inline-flex', alignItems: 'center',
+              transition: 'background-color 0.15s ease',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-secondary)' }}
+            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}
+          >
+            <BookmarkCheck size={16} fill="currentColor" />
+          </button>
+        </div>
+
+        {/* 右侧三点菜单 */}
+        <div ref={menuRef} style={{ position: 'relative' }}>
+          <button
+            onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v) }}
+            title="更多操作"
+            style={{
+              padding: '6px', borderRadius: '6px', border: 'none',
+              backgroundColor: menuOpen ? 'var(--bg-tertiary)' : 'transparent',
+              color: 'var(--text-muted)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center',
+              transition: 'background-color 0.15s ease, color 0.15s ease',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-secondary)'; e.currentTarget.style.color = 'var(--text-primary)' }}
+            onMouseLeave={(e) => { if (!menuOpen) { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = 'var(--text-muted)' } }}
+          >
+            <MoreHorizontal size={16} />
+          </button>
+          {menuOpen && (
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                position: 'absolute', top: '100%', right: 0, marginTop: '4px',
+                backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)',
+                borderRadius: '8px', boxShadow: '0 4px 12px var(--shadow-color)',
+                minWidth: '160px', padding: '4px', zIndex: 100,
+              }}
+            >
+              <button
+                onClick={handleCopyLink}
+                style={{
+                  width: '100%', padding: '8px 12px', border: 'none', backgroundColor: 'transparent',
+                  color: 'var(--text-primary)', cursor: 'pointer', fontSize: '13px',
+                  display: 'flex', alignItems: 'center', gap: '8px',
+                  borderRadius: '4px', textAlign: 'left',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-secondary)')}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+              >
+                {copied ? <Check size={14} /> : <Copy size={14} />}
+                <span>{copied ? '已复制' : '复制链接'}</span>
+              </button>
+              <button
+                disabled
+                title="即将推出"
+                style={{
+                  width: '100%', padding: '8px 12px', border: 'none', backgroundColor: 'transparent',
+                  color: 'var(--text-muted)', cursor: 'not-allowed', fontSize: '13px',
+                  display: 'flex', alignItems: 'center', gap: '8px',
+                  borderRadius: '4px', textAlign: 'left', opacity: 0.5,
+                }}
+              >
+                <Send size={14} />
+                <span>转发到墨问</span>
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   )
 }
