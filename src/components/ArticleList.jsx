@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { FileText, Loader2, AlertCircle, Search, RefreshCw, CheckCheck } from 'lucide-react'
 import { getArticleKey } from '../utils/articleKey'
 
@@ -24,6 +24,17 @@ export default function ArticleList({
 }) {
   // 搜索框显示状态
   const [showSearch, setShowSearch] = useState(false)
+
+  // 每篇文章的 row DOM ref,供 j/k 切换时把选中项滚入视野
+  // 用 Map 而不是 useRef 为每个 row 单独存,避免随文章数增长的 ref 对象数量
+  const rowRefs = useRef(new Map())
+
+  useEffect(() => {
+    if (!selectedArticle) return
+    const key = getArticleKey(selectedArticle)
+    const row = rowRefs.current.get(key)
+    if (row) row.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [selectedArticle])
 
   return (
     <main className="article-list w-[380px] flex flex-col overflow-hidden shrink-0">
@@ -176,6 +187,10 @@ export default function ArticleList({
             return (
               <div
                 key={articleKey}
+                ref={(el) => {
+                  if (el) rowRefs.current.set(articleKey, el)
+                  else rowRefs.current.delete(articleKey)
+                }}
                 onClick={() => onSelectArticle(article)}
                 style={{
                   padding: '14px 16px',

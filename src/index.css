@@ -332,6 +332,23 @@ body {
   animation: fadeIn 0.25s ease-out forwards;
 }
 
+/* 快捷键键帽(用在 ShortcutsOverlay) */
+kbd {
+  display: inline-block;
+  padding: 2px 7px;
+  min-width: 20px;
+  text-align: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  box-shadow: 0 1px 0 var(--border-color);
+}
+
 /* ============ Ask Cat 富文本渲染 ============ */
 
 /* 答案区:段间距 > 行间距,标题/列表/引用/代码完整样式 */

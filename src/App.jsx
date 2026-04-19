@@ -11,12 +11,14 @@ import { useOnlineStatus } from './hooks/useOnlineStatus'
 import { saveArticles, getArticles, clearExpiredCache, saveToReadingList, removeFromReadingList, getReadingList, saveFeedMeta, getFeedMeta, getAllReadStatus, saveReadStatusBatch, pruneOrphanedArticles } from './utils/db'
 import { getArticleKey } from './utils/articleKey'
 import { getSyncId, setSyncId, clearSyncId, generateSyncId, syncNow } from './utils/sync'
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import Header from './components/Header'
 import Sidebar from './components/Sidebar'
 import ArticleList from './components/ArticleList'
 import Reader from './components/Reader'
 import ReadingList from './components/ReadingList'
 import AskCatDrawer from './components/AskCatDrawer'
+import ShortcutsOverlay from './components/ShortcutsOverlay'
 
 // 常量
 const STORAGE_KEYS = {
@@ -83,6 +85,8 @@ function App() {
 
   // Ask Cat 抽屉状态(始终挂载组件,仅切换可见性)
   const [isAskCatOpen, setIsAskCatOpen] = useState(false)
+  // 快捷键帮助浮层
+  const [showShortcutsOverlay, setShowShortcutsOverlay] = useState(false)
 
   // 跨设备同步状态
   const [syncId, setSyncIdState] = useState(() => getSyncId())
@@ -164,11 +168,15 @@ function App() {
     try {
       const normalized = setSyncId(id)
       setSyncIdState(normalized)
+      // 显式触发一次同步,不依赖"syncId 变化驱动 useEffect"的间接路径
+      // 如果 normalized === 旧的 syncId(用户输入了相同 ID),React 不会 re-render,
+      // useEffect 也不会 fire,那间接路径会失效。显式调用确保"点保存 = 立即同步"
+      doSync()
     } catch (err) {
       setSyncError(err?.message || '配对失败')
       setSyncStatus('error')
     }
-  }, [])
+  }, [doSync])
 
   const handleSyncNow = useCallback(() => {
     doSync()
@@ -936,6 +944,83 @@ function App() {
     setArticleSearchQuery(query)
   }, [])
 
+  // ============ 键盘快捷键 ============
+
+  const handleNextArticle = useCallback(() => {
+    if (!filteredArticles.length) return
+    const currentIdx = selectedArticle
+      ? filteredArticles.findIndex(a => getArticleKey(a) === getArticleKey(selectedArticle))
+      : -1
+    const nextIdx = Math.min(filteredArticles.length - 1, currentIdx + 1)
+    const next = filteredArticles[nextIdx]
+    if (next && next !== selectedArticle) handleSelectArticle(next)
+  }, [filteredArticles, selectedArticle, handleSelectArticle])
+
+  const handlePrevArticle = useCallback(() => {
+    if (!filteredArticles.length) return
+    const currentIdx = selectedArticle
+      ? filteredArticles.findIndex(a => getArticleKey(a) === getArticleKey(selectedArticle))
+      : 0
+    const prevIdx = Math.max(0, currentIdx - 1)
+    const prev = filteredArticles[prevIdx]
+    if (prev && prev !== selectedArticle) handleSelectArticle(prev)
+  }, [filteredArticles, selectedArticle, handleSelectArticle])
+
+  // v1 的 m 等同点击该文章(markAsRead 是单向的,"标记为未读"产品功能单独做)
+  const handleToggleReadSelected = useCallback(() => {
+    if (selectedArticle) markAsRead(selectedArticle)
+  }, [selectedArticle, markAsRead])
+
+  // Esc 按优先级逐层退出
+  const handleEscape = useCallback(() => {
+    if (showShortcutsOverlay) { setShowShortcutsOverlay(false); return }
+    if (isFullscreen) { setIsFullscreen(false); return }
+    if (isAskCatOpen) { setIsAskCatOpen(false); return }
+    if (showReadingList) { setShowReadingList(false); return }
+    if (articleSearchQuery) { setArticleSearchQuery(''); return }
+  }, [showShortcutsOverlay, isFullscreen, isAskCatOpen, showReadingList, articleSearchQuery])
+
+  // g s 聚焦侧栏搜索;Sidebar 结构稳定,querySelector 够用
+  const handleFocusSidebarSearch = useCallback(() => {
+    const input = document.querySelector('aside.sidebar input[type="text"]')
+    if (input) input.focus()
+  }, [])
+
+  // 声明式 shortcuts 表:既驱动键盘,也驱动 ShortcutsOverlay 渲染
+  const SHORTCUTS = useMemo(() => [
+    // 导航
+    { key: 'j',       group: '导航', description: '下一篇',        handler: handleNextArticle },
+    { key: 'k',       group: '导航', description: '上一篇',        handler: handlePrevArticle },
+
+    // 状态
+    { key: 'm',       group: '状态', description: '标记已读',      handler: handleToggleReadSelected },
+    { key: 'b',       group: '状态', description: '切换收藏',       handler: handleToggleArticleBookmark },
+    { key: 'r',       group: '状态', description: '刷新当前',       handler: handleRefresh },
+    { key: 'Shift+A', group: '状态', description: '标记全部已读',   handler: handleMarkAllAsRead },
+
+    // 视图
+    { key: 'f',       group: '视图', description: '切换全屏',       handler: toggleFullscreen },
+    { key: 'v',       group: '视图', description: '切换原文 iframe', handler: () => toggleOriginal(!showOriginal) },
+    { key: 'Escape',  group: '视图', description: '关闭 / 退出',     handler: handleEscape },
+
+    // 跳转(chord)
+    { key: 'g a',     group: '跳转', description: '已缓存文章',     handler: handleSelectAll },
+    { key: 'g r',     group: '跳转', description: '阅读列表',       handler: () => { if (!showReadingList) handleToggleReadingList() } },
+    { key: 'g s',     group: '跳转', description: '聚焦侧栏搜索',   handler: handleFocusSidebarSearch },
+
+    // 应用
+    { key: 'Mod+K',   group: '应用', description: 'Ask Cat',        handler: () => setIsAskCatOpen(true), allowInInput: true },
+    { key: '?',       group: '应用', description: '显示此帮助',     handler: () => setShowShortcutsOverlay(true) },
+  ], [
+    handleNextArticle, handlePrevArticle, handleToggleReadSelected,
+    handleToggleArticleBookmark, handleRefresh, handleMarkAllAsRead,
+    toggleFullscreen, toggleOriginal, showOriginal, handleEscape,
+    handleSelectAll, handleToggleReadingList, showReadingList,
+    handleFocusSidebarSearch,
+  ])
+
+  useKeyboardShortcuts(SHORTCUTS)
+
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-primary)' }}>
       {/* Header */}
@@ -1045,6 +1130,13 @@ function App() {
         articles={articles}
         selectedArticle={selectedArticle}
         onOpenArticle={handleOpenArticleFromAskCat}
+      />
+
+      {/* 键盘快捷键帮助浮层 — ? 键触发,SHORTCUTS 数据双用:驱动按键 + 渲染表格 */}
+      <ShortcutsOverlay
+        isOpen={showShortcutsOverlay}
+        onClose={() => setShowShortcutsOverlay(false)}
+        shortcuts={SHORTCUTS}
       />
     </div>
   )

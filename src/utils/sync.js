@@ -35,7 +35,11 @@ export function getSyncId() {
 }
 
 export function setSyncId(id) {
-  const normalized = String(id).trim()
+  // 粘贴场景下 ID 可能混入空格、换行、零宽字符(尤其是从聊天工具复制过来)
+  // 一律剥干净再校验,避免"看着合法但 regex 过不了"的隐性失败
+  const normalized = String(id)
+    .replace(/\s+/g, '')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
   if (!/^[a-zA-Z0-9-]{32,128}$/.test(normalized)) {
     throw new Error('Sync ID 格式不合法(需 32-128 位字母数字或短横线)')
   }
