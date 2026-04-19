@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Rss, RefreshCw, Upload, PanelLeft, Sun, Moon, CloudSun, WifiOff, Cloud, Copy, Check, MessageCircle } from 'lucide-react'
+import { Rss, RefreshCw, Upload, PanelLeft, Sun, Moon, CloudSun, WifiOff, Cloud, Copy, Check, MessageCircle, Keyboard } from 'lucide-react'
 
 const themes = [
   { id: 'light', name: '浅色', icon: Sun },
@@ -53,6 +53,8 @@ export default function Header({
   // Ask Cat
   onToggleAskCat,
   isAskCatOpen = false,
+  // 快捷键帮助
+  onShowShortcuts,
 }) {
   const [showThemeMenu, setShowThemeMenu] = useState(false)
   const [showSyncMenu, setShowSyncMenu] = useState(false)
@@ -414,6 +416,17 @@ export default function Header({
             </div>
           )}
         </div>
+
+        {/* 快捷键帮助 */}
+        <button
+          onClick={onShowShortcuts}
+          style={{ padding: '6px', borderRadius: '6px', backgroundColor: 'transparent', border: 'none', cursor: 'pointer' }}
+          title="键盘快捷键 (按 ? 也可)"
+          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'}
+          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+        >
+          <Keyboard size={18} />
+        </button>
 
         {/* Ask Cat */}
         <button

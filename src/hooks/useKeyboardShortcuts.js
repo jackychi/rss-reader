@@ -53,14 +53,33 @@ function parseBinding(str) {
   return { type: 'single', parsed: parseSingle(str) }
 }
 
+// Mac 的 Option 键会做 OS 层字符转译(Option+K → ˚),Windows/Linux 的 Alt 通常不会
+// 但 browser 上都体现为 e.altKey=true。为了绑定可靠,当 binding 涉及 alt 时改用 e.code
+// (物理键位,如 'KeyK'),跳过 OS 的字符转译
+function resolveEventKey(parsed, e) {
+  if (parsed.modifiers.has('alt') && e.code) {
+    if (e.code.startsWith('Key')) return e.code.slice(3).toLowerCase()
+    if (e.code.startsWith('Digit')) return e.code.slice(5)
+  }
+  return e.key.length === 1 ? e.key.toLowerCase() : e.key
+}
+
 function eventMatches(parsed, e, mac) {
-  const eventKey = e.key.length === 1 ? e.key.toLowerCase() : e.key
+  const eventKey = resolveEventKey(parsed, e)
   if (eventKey !== parsed.key) return false
   const needShift = parsed.modifiers.has('shift')
   const needAlt = parsed.modifiers.has('alt')
   const needMod = parsed.modifiers.has('mod') || parsed.modifiers.has('ctrl') || parsed.modifiers.has('cmd') || parsed.modifiers.has('meta')
   const modPressed = mac ? e.metaKey : e.ctrlKey
-  if (e.shiftKey !== needShift) return false
+
+  // Shift 状态比较有两种场景:
+  //   - 字母键('a'-'z')+ 显式 Shift 修饰键('Shift+A'/Escape 这种命名键),需要严格匹配
+  //   - 非字母单字符('?' '!' '/' 等),shift 是字符本身固有的("要按 shift 才能打出"),
+  //     不参与修饰键语义。用户写 '?' 就是真的指这个字符,不 care shiftKey 是否按下
+  const isLetter = parsed.key.length === 1 && /^[a-z]$/.test(parsed.key)
+  const needShiftCheck = isLetter || needShift || parsed.key.length > 1
+  if (needShiftCheck && e.shiftKey !== needShift) return false
+
   if (e.altKey !== needAlt) return false
   if (modPressed !== needMod) return false
   return true

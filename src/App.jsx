@@ -1009,7 +1009,8 @@ function App() {
     { key: 'g s',     group: '跳转', description: '聚焦侧栏搜索',   handler: handleFocusSidebarSearch },
 
     // 应用
-    { key: 'Mod+K',   group: '应用', description: 'Ask Cat',        handler: () => setIsAskCatOpen(true), allowInInput: true },
+    { key: 'Mod+K',   group: '应用', description: '打开 Ask Cat',   handler: () => setIsAskCatOpen(true), allowInInput: true },
+    { key: 'Alt+K',   group: '应用', description: '收起 Ask Cat',   handler: () => setIsAskCatOpen(false), allowInInput: true },
     { key: '?',       group: '应用', description: '显示此帮助',     handler: () => setShowShortcutsOverlay(true) },
   ], [
     handleNextArticle, handlePrevArticle, handleToggleReadSelected,
@@ -1045,6 +1046,7 @@ function App() {
         onDisableSync={handleDisableSync}
         isAskCatOpen={isAskCatOpen}
         onToggleAskCat={() => setIsAskCatOpen(v => !v)}
+        onShowShortcuts={() => setShowShortcutsOverlay(true)}
       />
 
       <div className="flex-1 flex overflow-hidden">
