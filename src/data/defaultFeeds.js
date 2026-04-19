@@ -1,6 +1,36 @@
 // Default feeds from OPML - 完全导入 follow.opml
 export const defaultFeeds = [
   {
+    category: "AI 实验室",
+    feeds: [
+      // Anthropic
+      { title: "Anthropic News", xmlUrl: "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_news.xml" },
+      { title: "Anthropic Engineering", xmlUrl: "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_engineering.xml" },
+      { title: "Anthropic Research", xmlUrl: "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_research.xml" },
+      { title: "Anthropic Frontier Red Team", xmlUrl: "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_red.xml" },
+      { title: "Claude Blog", xmlUrl: "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_claude.xml" },
+      // OpenAI & xAI
+      { title: "OpenAI Research", xmlUrl: "https://openai.com/blog/rss.xml" },
+      { title: "xAI News", xmlUrl: "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_xainews.xml" },
+      // Google
+      { title: "Google DeepMind Blog", xmlUrl: "https://deepmind.google/blog/rss.xml" },
+      { title: "Google Developers Blog - AI", xmlUrl: "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_google_ai.xml" },
+      // AI 工具
+      { title: "Cursor Blog", xmlUrl: "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_cursor.xml" },
+      { title: "Windsurf Blog", xmlUrl: "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_windsurf_blog.xml" },
+      { title: "Windsurf Changelog", xmlUrl: "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_windsurf_changelog.xml" },
+      { title: "Ollama Blog", xmlUrl: "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_ollama.xml" },
+      { title: "Supabase Blog", xmlUrl: "https://supabase.com/rss.xml" },
+      // AI 行业
+      { title: "The Batch by DeepLearning.AI", xmlUrl: "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_the_batch.xml" },
+      { title: "Surge AI Blog", xmlUrl: "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_blogsurgeai.xml" },
+      { title: "Thinking Machines Lab", xmlUrl: "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_thinkingmachines.xml" },
+      // 个人
+      { title: "Paul Graham", xmlUrl: "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_paulgraham.xml" },
+      { title: "Hamel Husain", xmlUrl: "https://hamel.dev/index.xml" },
+    ]
+  },
+  {
     category: "Blogs",
     feeds: [
       { title: "simonwillison.net", xmlUrl: "https://simonwillison.net/atom/everything/" },

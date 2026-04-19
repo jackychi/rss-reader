@@ -1,7 +1,107 @@
 import { useState, useEffect, useRef } from 'react'
-import { X, ChevronRight, ExternalLink, FileText, Play, Pause, Download, Maximize2, Minimize2, Bookmark, BookmarkCheck } from 'lucide-react'
+import { X, ChevronRight, ExternalLink, FileText, Play, Pause, Download, Maximize2, Minimize2, Bookmark, BookmarkCheck, Rss, MoreHorizontal, Copy, Check, Send } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
+
+/**
+ * OriginalMenu - iframe 原文工具栏的三点下拉菜单
+ */
+function OriginalMenu({ link }) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const menuRef = useRef(null)
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const onClick = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [menuOpen])
+
+  const handleCopy = async (e) => {
+    e.stopPropagation()
+    try {
+      await navigator.clipboard.writeText(link || '')
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {}
+    setMenuOpen(false)
+  }
+
+  return (
+    <div ref={menuRef} style={{ position: 'relative' }}>
+      <button
+        onClick={() => setMenuOpen(v => !v)}
+        style={{
+          padding: '6px', borderRadius: '6px', border: 'none',
+          backgroundColor: menuOpen ? 'var(--bg-tertiary)' : 'transparent',
+          color: 'var(--text-muted)', cursor: 'pointer', display: 'inline-flex',
+          alignItems: 'center', transition: 'background-color 0.15s ease',
+        }}
+        onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-secondary)' }}
+        onMouseLeave={(e) => { if (!menuOpen) e.currentTarget.style.backgroundColor = 'transparent' }}
+      >
+        <MoreHorizontal size={18} />
+      </button>
+      {menuOpen && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: 'absolute', top: '100%', right: 0, marginTop: '4px',
+            backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)',
+            borderRadius: '8px', boxShadow: '0 4px 12px var(--shadow-color)',
+            minWidth: '160px', padding: '4px', zIndex: 100,
+          }}
+        >
+          <a
+            href={link}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => setMenuOpen(false)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '8px',
+              width: '100%', padding: '8px 12px', borderRadius: '4px',
+              textDecoration: 'none', color: 'var(--text-primary)',
+              fontSize: '13px', cursor: 'pointer',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-secondary)')}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+          >
+            <ExternalLink size={14} />
+            <span>在新标签页打开</span>
+          </a>
+          <button
+            onClick={handleCopy}
+            style={{
+              width: '100%', padding: '8px 12px', border: 'none', backgroundColor: 'transparent',
+              color: 'var(--text-primary)', cursor: 'pointer', fontSize: '13px',
+              display: 'flex', alignItems: 'center', gap: '8px', borderRadius: '4px', textAlign: 'left',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-secondary)')}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+          >
+            {copied ? <Check size={14} /> : <Copy size={14} />}
+            <span>{copied ? '已复制' : '复制链接'}</span>
+          </button>
+          <button
+            disabled
+            title="即将推出"
+            style={{
+              width: '100%', padding: '8px 12px', border: 'none', backgroundColor: 'transparent',
+              color: 'var(--text-muted)', cursor: 'not-allowed', fontSize: '13px',
+              display: 'flex', alignItems: 'center', gap: '8px', borderRadius: '4px', textAlign: 'left', opacity: 0.5,
+            }}
+          >
+            <Send size={14} />
+            <span>转发到墨问</span>
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
 
 /**
  * Reader 组件 - 右侧文章阅读器
@@ -23,7 +123,8 @@ export default function Reader({
   isFullscreen = false,
   onToggleFullscreen,
   isInReadingList = false,
-  onToggleReadingList
+  onToggleReadingList,
+  onNavigateToFeed
 }) {
   const [isPlaying, setIsPlaying] = useState(false)
   const [audioProgress, setAudioProgress] = useState(initialAudioPosition)
@@ -217,7 +318,28 @@ export default function Reader({
                   <X size={18} />
                 </button>
               )}
-              <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{selectedArticle.feedTitle}</span>
+              <button
+                onClick={() => onNavigateToFeed?.(selectedArticle)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  fontSize: '13px',
+                  color: 'var(--text-muted)',
+                  background: 'none',
+                  border: 'none',
+                  borderRadius: '6px',
+                  padding: '2px 6px',
+                  cursor: 'pointer',
+                  transition: 'background-color 0.15s ease, color 0.15s ease',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'var(--text-secondary)' }}
+                onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = 'var(--text-muted)' }}
+                title="进入专栏"
+              >
+                <Rss size={11} style={{ color: '#ff9500', flexShrink: 0 }} />
+                {selectedArticle.feedTitle}
+              </button>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               {/* 字体大小调节 */}
@@ -296,25 +418,48 @@ export default function Reader({
               >
                 {isInReadingList ? <BookmarkCheck size={16} /> : <Bookmark size={16} />}
               </button>
-              <a
-                href={selectedArticle.link}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="original-link"
-                style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--accent-color)', textDecoration: 'none', fontSize: '13px' }}
-              >
-                Original
-                <ExternalLink size={14} />
-              </a>
+              <OriginalMenu link={selectedArticle.link} />
             </div>
           </div>
           <div className="flex-1 overflow-hidden">
             {showOriginal && selectedArticle.link ? (
-              <iframe
-                src={selectedArticle.link}
-                style={{ width: '100%', height: '100%', border: 'none' }}
-                title="Original Article"
-              />
+              <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
+                <div style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '8px 16px', borderBottom: '1px solid var(--border-color)',
+                  backgroundColor: 'var(--bg-tertiary)', flexShrink: 0,
+                }}>
+                  <button
+                    onClick={() => onToggleOriginal(false)}
+                    style={{
+                      padding: '4px 12px', borderRadius: '6px',
+                      border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-primary)',
+                      color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '13px',
+                    }}
+                  >
+                    ← 返回
+                  </button>
+                  <a
+                    href={selectedArticle.link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: '4px',
+                      padding: '4px 12px', borderRadius: '6px',
+                      backgroundColor: 'var(--accent-color)', color: '#fff',
+                      textDecoration: 'none', fontSize: '13px', fontWeight: 600,
+                    }}
+                  >
+                    在新标签页打开
+                    <ExternalLink size={13} />
+                  </a>
+                </div>
+                <iframe
+                  src={selectedArticle.link}
+                  style={{ width: '100%', flex: 1, border: 'none' }}
+                  title="Original Article"
+                />
+              </div>
             ) : (
               <div
                 ref={contentRef}

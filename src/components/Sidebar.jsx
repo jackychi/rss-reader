@@ -15,6 +15,7 @@ export default function Sidebar({
   searchQuery,
   onSearchChange,
   unreadCounts,
+  dataReady = true,
   readingListCount = 0,
   showReadingList = false,
   onToggleReadingList
@@ -99,7 +100,7 @@ export default function Sidebar({
             <FileText size={16} />
             <span>已缓存文章</span>
           </div>
-          {totalUnread > 0 && (
+          {dataReady && totalUnread > 0 && (
             <span style={{
               backgroundColor: 'var(--accent-color)',
               color: '#fff',
@@ -125,7 +126,7 @@ export default function Sidebar({
             <Bookmark size={16} />
             <span>阅读列表</span>
           </div>
-          {readingListCount > 0 && (
+          {dataReady && readingListCount > 0 && (
             <span style={{
               backgroundColor: 'var(--accent-color)',
               color: '#fff',
@@ -182,7 +183,7 @@ export default function Sidebar({
                     {category.category}
                   </span>
                 </div>
-                {categoryUnread > 0 && !searchQuery && (
+                {dataReady && categoryUnread > 0 && !searchQuery && (
                   <span style={{
                     backgroundColor: 'var(--accent-color)',
                     color: '#fff',
@@ -216,7 +217,7 @@ export default function Sidebar({
                             <Rss size={12} style={{ color: '#ff9500', flexShrink: 0 }} />
                             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{feed.title}</span>
                           </div>
-                          {feedUnread > 0 && (
+                          {dataReady && feedUnread > 0 && (
                             <span style={{
                               backgroundColor: 'var(--accent-color)',
                               color: '#fff',

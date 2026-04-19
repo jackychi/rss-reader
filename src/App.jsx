@@ -68,6 +68,8 @@ function App() {
   // unreadByFeed: 每个 feed 的未读 key 集合,计算未读数只需 set.size
   const [readSet, setReadSet] = useState(() => new Set())
   const [unreadByFeed, setUnreadByFeed] = useState(() => new Map())
+  const [idbReady, setIdbReady] = useState(false)   // 本地 IDB 加载完成
+  const [dataReady, setDataReady] = useState(false) // IDB + 首次同步(如有)都完成
 
   // 其他状态
   const [selectedFeed, setSelectedFeed] = useState(null)
@@ -347,6 +349,7 @@ function App() {
       } catch (err) {
         console.error('[App] readStatus init failed:', err)
       }
+      if (!cancelled) setIdbReady(true)
     }
     init()
     return () => { cancelled = true }
@@ -391,10 +394,27 @@ function App() {
 
   // ============ 跨设备同步 - 初始同步 ============
   // syncId 存在且在线时触发一次 syncNow。syncId 变化(用户启用/配对)也会重跑。
+  // 初始同步完成后标记 dataReady(无 syncId 时 idbReady 即可)。
+  const initialSyncDoneRef = useRef(false)
   useEffect(() => {
-    if (!syncId || !isOnline) return
-    doSync()
-  }, [syncId, isOnline, doSync])
+    if (!syncId || !isOnline) {
+      // 未启用同步或离线:IDB 就绪即 dataReady
+      if (idbReady && !initialSyncDoneRef.current) {
+        initialSyncDoneRef.current = true
+        setDataReady(true)
+      }
+      return
+    }
+    if (!idbReady) return // 先等 IDB 加载完再同步
+    const doInitialSync = async () => {
+      try { await doSync() } catch { /* 同步失败也放行,避免卡死 */ }
+      if (!initialSyncDoneRef.current) {
+        initialSyncDoneRef.current = true
+        setDataReady(true)
+      }
+    }
+    doInitialSync()
+  }, [syncId, isOnline, idbReady, doSync])
 
   // ============ 跨设备同步 - 自动推送 ============
   // readSet / readingList 变化时 debounce 3s 调 syncNow。
@@ -829,6 +849,27 @@ function App() {
     markAsRead(article)
   }, [markAsRead])
 
+  // 从文章阅读器跳转到对应 feed 专栏
+  const handleNavigateToFeed = useCallback((article) => {
+    const feedUrl = article.feedUrl
+    if (!feedUrl) return
+    // 在 feeds 中查找匹配的 category + feed
+    for (const category of feeds) {
+      for (const feed of category.feeds) {
+        if (feed.xmlUrl === feedUrl) {
+          // 展开对应分类
+          if (!expandedCategories[category.category]) {
+            setExpandedCategories(prev => ({ ...prev, [category.category]: true }))
+          }
+          handleSelectFeed(category.category, feed)
+          // 确保侧边栏可见
+          if (!sidebarVisible) setSidebarVisible(true)
+          return
+        }
+      }
+    }
+  }, [feeds, expandedCategories, handleSelectFeed, sidebarVisible])
+
   const handleImportOPML = useCallback(async (event) => {
     const file = event.target.files[0]
     if (!file) return
@@ -1000,7 +1041,7 @@ function App() {
 
     // 视图(f / v 只对"已打开的文章"有意义,没选中时 no-op)
     { key: 'f',       group: '视图', description: '切换全屏',       handler: () => { if (selectedArticle) toggleFullscreen() } },
-    { key: 'v',       group: '视图', description: '切换原文 iframe', handler: () => { if (selectedArticle) toggleOriginal(!showOriginal) } },
+    { key: 'v',       group: '视图', description: '在新标签页打开原文', handler: () => { if (selectedArticle?.link) window.open(selectedArticle.link, '_blank', 'noopener,noreferrer') } },
     { key: 'Escape',  group: '视图', description: '关闭 / 退出',     handler: handleEscape },
 
     // 跳转(chord)
@@ -1063,6 +1104,7 @@ function App() {
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
             unreadCounts={unreadCounts}
+            dataReady={dataReady}
             readingListCount={readingList.length}
             showReadingList={showReadingList}
             onToggleReadingList={handleToggleReadingList}
@@ -1121,6 +1163,7 @@ function App() {
             onUpdateAudioPosition={(position) => handleUpdateAudioPosition(selectedArticle, position)}
             isInReadingList={isArticleInReadingList()}
             onToggleReadingList={handleToggleArticleBookmark}
+            onNavigateToFeed={handleNavigateToFeed}
           />
         )}
       </div>

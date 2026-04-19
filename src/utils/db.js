@@ -330,14 +330,24 @@ export async function saveToReadingList(article) {
   }
 }
 
-// 从阅读列表移除文章
+// 从阅读列表移除文章 — 写墓碑而非真删,防止跨设备同步 UNION merge 把已删条目合回来
 export async function removeFromReadingList(articleId) {
   try {
     const db = await openDB()
     const tx = db.transaction('readingList', 'readwrite')
     const store = tx.objectStore('readingList')
 
-    store.delete(articleId)
+    const existing = await new Promise((resolve, reject) => {
+      const req = store.get(articleId)
+      req.onsuccess = () => resolve(req.result)
+      req.onerror = () => reject(req.error)
+    })
+
+    if (existing) {
+      store.put({ ...existing, removedAt: Date.now() })
+    } else {
+      store.put({ id: articleId, removedAt: Date.now() })
+    }
 
     return new Promise((resolve, reject) => {
       tx.oncomplete = () => resolve(true)
@@ -360,7 +370,8 @@ export async function getReadingList() {
       const request = store.getAll()
 
       request.onsuccess = () => {
-        const articles = request.result || []
+        const articles = (request.result || [])
+          .filter(a => !a.removedAt) // 过滤墓碑
         // 按保存时间倒序排列
         articles.sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0))
         resolve(articles)
@@ -374,6 +385,42 @@ export async function getReadingList() {
   }
 }
 
+// 获取阅读列表所有条目(含墓碑),供同步模块使用
+export async function getReadingListWithTombstones() {
+  try {
+    const db = await openDB()
+    const tx = db.transaction('readingList', 'readonly')
+    const store = tx.objectStore('readingList')
+
+    return new Promise((resolve, reject) => {
+      const request = store.getAll()
+      request.onsuccess = () => resolve(request.result || [])
+      request.onerror = () => reject(request.error)
+    })
+  } catch (error) {
+    console.error('[DB] Failed to get reading list with tombstones:', error)
+    return []
+  }
+}
+
+// 按 ID 获取阅读列表中的单条记录(含 content),供同步模块保留本地 content
+export async function getReadingListItemById(articleId) {
+  try {
+    const db = await openDB()
+    const tx = db.transaction('readingList', 'readonly')
+    const store = tx.objectStore('readingList')
+
+    return new Promise((resolve, reject) => {
+      const request = store.get(articleId)
+      request.onsuccess = () => resolve(request.result || null)
+      request.onerror = () => reject(request.error)
+    })
+  } catch (error) {
+    console.error('[DB] Failed to get reading list item by id:', error)
+    return null
+  }
+}
+
 // 检查文章是否在阅读列表中
 export async function isInReadingList(articleId) {
   try {
@@ -383,7 +430,7 @@ export async function isInReadingList(articleId) {
 
     return new Promise((resolve, reject) => {
       const request = store.get(articleId)
-      request.onsuccess = () => resolve(!!request.result)
+      request.onsuccess = () => resolve(!!request.result && !request.result.removedAt)
       request.onerror = () => reject(request.error)
     })
   } catch (error) {
@@ -453,9 +500,13 @@ export async function pruneOrphanedArticles(validFeedUrls) {
   return { articles: articlesDeleted, feedMeta: feedMetaDeleted }
 }
 
-// 清理过期缓存（超过 7 天）
+// 清理过期缓存（超过 7 天）,但保留阅读列表中文章的 content
 export async function clearExpiredCache() {
   try {
+    // 先收集阅读列表中的文章 ID,这些文章的缓存要保留
+    const savedItems = await getReadingListWithTombstones()
+    const savedIds = new Set(savedItems.map(item => item.id))
+
     const db = await openDB()
     const tx = db.transaction('articles', 'readwrite')
     const store = tx.objectStore('articles')
@@ -469,7 +520,7 @@ export async function clearExpiredCache() {
       const cursor = event.target.result
       if (cursor) {
         const article = cursor.value
-        if (article.cachedAt && (now - article.cachedAt) > sevenDays) {
+        if (article.cachedAt && (now - article.cachedAt) > sevenDays && !savedIds.has(article.id)) {
           cursor.delete()
           deletedCount++
         }
@@ -543,6 +594,8 @@ export default {
   saveToReadingList,
   removeFromReadingList,
   getReadingList,
+  getReadingListWithTombstones,
+  getReadingListItemById,
   isInReadingList,
   clearExpiredCache,
   pruneOrphanedArticles,

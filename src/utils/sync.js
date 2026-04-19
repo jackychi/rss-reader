@@ -15,7 +15,8 @@ import { getArticleKey } from './articleKey'
 import {
   getAllReadStatusRecords,
   saveReadStatusRecordsBatch,
-  getReadingList,
+  getReadingListWithTombstones,
+  getReadingListItemById,
   saveToReadingList,
   getArticleById,
 } from './db'
@@ -70,25 +71,38 @@ export function mergeStates(a, b) {
     }
   }
 
-  // readingList:按 id (= articleKey) union,savedAt 取较早的(保留首次收藏时间)
+  // readingList:按 id (= articleKey) union,墓碑优先
+  // 规则:如果任一方标记了 removedAt,取 removedAt 更大的那份(最新删除);
+  // 如果没有 removedAt,按 savedAt 取最早的(保留首次收藏时间)
   const listMap = new Map()
   for (const item of [...(a?.readingList || []), ...(b?.readingList || [])]) {
     const key = item?.id ?? (item?.feedUrl && (item?.guid || item?.link) ? getArticleKey(item) : null)
     if (!key) continue
     const prev = listMap.get(key)
-    if (!prev || (item.savedAt ?? 0) < (prev.savedAt ?? 0)) {
+    if (!prev) {
+      listMap.set(key, item)
+    } else if (item.removedAt || prev.removedAt) {
+      // 任一方有墓碑:取 removedAt 更大的(最新删除胜出)
+      if ((item.removedAt ?? 0) > (prev.removedAt ?? 0)) {
+        listMap.set(key, item)
+      }
+    } else if ((item.savedAt ?? 0) < (prev.savedAt ?? 0)) {
       listMap.set(key, item)
     }
   }
-  const readingList = Array.from(listMap.values()).sort(
+  // 合并结果中过滤掉墓碑条目(不推给 UI,但保留在 wire payload 里让远端也同步删除)
+  const readingListAll = Array.from(listMap.values()).sort(
     (x, y) => (y.savedAt ?? 0) - (x.savedAt ?? 0)
   )
+  const readingList = readingListAll.filter(item => !item.removedAt)
 
   return {
     version: SYNC_VERSION,
     updatedAt: Date.now(),
     readStatus: Array.from(readMap.values()),
     readingList,
+    // 含墓碑的完整列表,供 writeLocal / pushRemote 使用
+    readingListAll,
   }
 }
 
@@ -97,7 +111,7 @@ export function mergeStates(a, b) {
 async function readLocal() {
   const [readStatus, readingList] = await Promise.all([
     getAllReadStatusRecords(),
-    getReadingList(),
+    getReadingListWithTombstones(),
   ])
   return { version: SYNC_VERSION, updatedAt: Date.now(), readStatus, readingList }
 }
@@ -136,8 +150,26 @@ async function enrichReadingListWithContent(list) {
 async function writeLocal(merged) {
   await Promise.all([
     saveReadStatusRecordsBatch(merged.readStatus),
-    // saveToReadingList 单条,循环调用;item 数通常 < 100,不加批量足够
-    Promise.all(merged.readingList.map((item) => saveToReadingList(item))),
+    // 写 readingList 时保留本地已有的 content,避免覆盖丢失
+    // 场景:远端 item 被 stripReadingListForWire 剥离了 content,回填时 articles store
+    // 可能已过期清理,此时直接 put 会把本地有 content 的记录覆盖成无 content 的
+    Promise.all(merged.readingList.map(async (item) => {
+      if (item.content) {
+        // merged item 已有 content,直接写
+        return saveToReadingList(item)
+      }
+      // 尝试从本地 readingList store 取已有记录的 content
+      const existing = await getReadingListItemById(item.id)
+      if (existing?.content) {
+        return saveToReadingList({ ...item, content: existing.content, contentSnippet: existing.contentSnippet || item.contentSnippet })
+      }
+      // 本地也没有,从 articles store 回填
+      const article = await getArticleById(item.id)
+      if (article?.content) {
+        return saveToReadingList({ ...item, content: article.content, contentSnippet: article.contentSnippet || item.contentSnippet })
+      }
+      return saveToReadingList(item)
+    })),
   ])
 }
 
@@ -171,18 +203,18 @@ export async function syncNow(id) {
   const [remote, local] = await Promise.all([pullRemote(id), readLocal()])
   const merged = mergeStates(local, remote)
 
-  // 两份 readingList 拷贝:
-  //   - forWire:发往服务器,剥 content 减 payload
-  //   - enrichedList:写本地,尝试从 articles store 回填缺失 content
+  // readingListAll 含墓碑,用于写入远端和本地 IDB(让删除状态传播)
+  // readingList 不含墓碑,用于 UI 展示
   const forWire = {
     ...merged,
-    readingList: stripReadingListForWire(merged.readingList),
+    readingList: stripReadingListForWire(merged.readingListAll),
+    readingListAll: undefined, // 远端不需要这个额外字段
   }
   const enrichedList = await enrichReadingListWithContent(merged.readingList)
 
   await Promise.all([
     pushRemote(id, forWire),
-    writeLocal({ ...merged, readingList: enrichedList }),
+    writeLocal({ ...merged, readingList: merged.readingListAll }),
   ])
 
   return {
