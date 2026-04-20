@@ -8,6 +8,22 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // 开发模式下,在任何模块加载之前注销残留的 Service Worker。
+      // 必须放在 index.html 内联执行——如果放在 main.jsx 里,SW 可能
+      // 已经用 cache-first 返回了旧 HTML,导致新 JS 根本无法运行(白屏)。
+      // production 构建时 Vite 不会处理 index.html 里的 import.meta,
+      // 所以用 location.port 判断:dev server 一定有端口,线上部署通常没有。
+      if ('serviceWorker' in navigator && location.port) {
+        navigator.serviceWorker.getRegistrations().then(function(regs) {
+          if (regs.length) {
+            regs.forEach(function(r) { r.unregister() })
+            // 注销后重新加载一次,确保本次请求不再被 SW 拦截
+            if (navigator.serviceWorker.controller) location.reload()
+          }
+        })
+      }
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

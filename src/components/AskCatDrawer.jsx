@@ -79,7 +79,7 @@ function renderAssistantHTML(content, articleLinks = null) {
   )
 
   // http(s) 链接分流:本知识库里的 article → Reader;其他 → 新标签页
-  return withCitationAttrs.replace(
+  const withLinks = withCitationAttrs.replace(
     /<a([^>]*?)href="(https?:\/\/[^"]+)"([^>]*?)>/g,
     (match, pre, href, post) => {
       if (/target=/.test(match) || /data-article-link=/.test(match)) return match
@@ -91,6 +91,9 @@ function renderAssistantHTML(content, articleLinks = null) {
       return `<a${pre}href="${href}"${post} target="_blank" rel="noopener noreferrer">`
     }
   )
+
+  // 去掉 article-link 前面 AI 自带的 🔗 emoji,避免与 CSS ::before 重复
+  return withLinks.replace(/🔗\s*(<a[^>]*class="askcat-article-link")/g, '$1')
 }
 
 export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticle, onOpenArticle }) {
