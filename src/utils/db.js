@@ -314,10 +314,12 @@ export async function saveToReadingList(article) {
     const tx = db.transaction('readingList', 'readwrite')
     const store = tx.objectStore('readingList')
 
+    const id = article.id ?? `${article.feedUrl}-${article.guid || article.link}`
     store.put({
-      id: `${article.feedUrl}-${article.guid || article.link}`,
+      id,
       ...article,
-      savedAt: Date.now(),
+      // 同步回写要保留已合并过的 savedAt,否则每次 sync 都会把收藏时间刷新成“现在”
+      savedAt: article.savedAt ?? Date.now(),
     })
 
     return new Promise((resolve, reject) => {
@@ -503,9 +505,10 @@ export async function pruneOrphanedArticles(validFeedUrls) {
 // 清理过期缓存（超过 7 天）,但保留阅读列表中文章的 content
 export async function clearExpiredCache() {
   try {
-    // 先收集阅读列表中的文章 ID,这些文章的缓存要保留
+    // 先收集仍在阅读列表中的文章 ID,这些文章的缓存要保留
+    // 墓碑代表“已移除”,不能继续阻止缓存过期清理
     const savedItems = await getReadingListWithTombstones()
-    const savedIds = new Set(savedItems.map(item => item.id))
+    const savedIds = new Set(savedItems.filter(item => !item.removedAt).map(item => item.id))
 
     const db = await openDB()
     const tx = db.transaction('articles', 'readwrite')
