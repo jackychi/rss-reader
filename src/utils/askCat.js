@@ -182,7 +182,7 @@ function extractThinkTag(content) {
 //   - message.reasoning_content(OpenAI o1 / MiniMax-M1 等)
 //   - content 里的 <think>...</think> 包裹(DeepSeek R1 等)
 // 抛错时 error.message 包含 HTTP status,方便 UI 层分类处理
-export async function callLLM(messages, config) {
+export async function callLLM(messages, config, { signal } = {}) {
   if (!isConfigValid(config)) {
     throw new Error('LLM 未配置,请先到设置里填入 Base URL / API Key / Model')
   }
@@ -202,6 +202,7 @@ export async function callLLM(messages, config) {
         temperature: 0.3,
         max_tokens: 2000,
       }),
+      signal,
     })
   } catch (networkErr) {
     // TypeError: Failed to fetch 典型就是 CORS 或断网

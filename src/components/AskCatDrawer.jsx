@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
-import { MessageCircle, Settings, X, Send, Cat, Loader2, Copy, RotateCcw, Check } from 'lucide-react'
+import { MessageCircle, Settings, X, Square, Cat, Loader2, Copy, RotateCcw, Check, ArrowUp } from 'lucide-react'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import {
@@ -109,6 +109,7 @@ export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticl
   const textareaRef = useRef(null)
   const drawerRef = useRef(null)
   const prevIsOpenRef = useRef(isOpen)
+  const abortRef = useRef(null)
 
   // 拖拽左边缘调整抽屉宽度
   // 鼠标左移 → 宽度增大(起点右 - 当前点 = 正 delta)
@@ -223,21 +224,28 @@ export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticl
       currentArticle: selectedArticle || null,
     })
 
+    const controller = new AbortController()
+    abortRef.current = controller
     setIsLoading(true)
     try {
-      const reply = await callLLM(llmMessages, config)
+      const reply = await callLLM(llmMessages, config, { signal: controller.signal })
       setMessages((prev) => [...prev, {
         role: 'assistant',
         content: reply.content,
         reasoning: reply.reasoning || '',
       }])
     } catch (err) {
-      console.error('[AskCat] LLM call failed:', err)
-      setMessages((prev) => [
-        ...prev,
-        { role: 'assistant', content: `⚠️ ${err?.message || '未知错误'}`, isError: true },
-      ])
+      if (err?.name === 'AbortError') {
+        setMessages((prev) => [...prev, { role: 'assistant', content: '⏹ 已停止', isError: true }])
+      } else {
+        console.error('[AskCat] LLM call failed:', err)
+        setMessages((prev) => [
+          ...prev,
+          { role: 'assistant', content: `⚠️ ${err?.message || '未知错误'}`, isError: true },
+        ])
+      }
     } finally {
+      abortRef.current = null
       setIsLoading(false)
     }
   }, [configValid, articles, config, selectedArticle, contextByIdRef, contextByLinkRef])
@@ -251,6 +259,10 @@ export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticl
     setInput('')
     await sendToLLM(question, history)
   }, [input, isLoading, messages, sendToLLM])
+
+  const handleStop = useCallback(() => {
+    abortRef.current?.abort()
+  }, [])
 
   // 重试某条 assistant 消息:找到前一个 user,砍掉 assistant 和之后的,用相同 question 重新 LLM
   const handleRetryMessage = useCallback(async (index) => {
@@ -427,52 +439,39 @@ export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticl
             <div ref={messagesEndRef} />
           </div>
 
-          <div style={{
-            borderTop: '1px solid var(--border-color)',
-            padding: '10px',
-            display: 'flex',
-            gap: '8px',
-            alignItems: 'flex-end',
-          }}>
+          <div className="askcat-input-area">
             <textarea
               ref={textareaRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={configValid ? '问点什么... (Enter 发送,Shift+Enter 换行)' : '先到设置里配 LLM 再问'}
-              disabled={!configValid || isLoading}
-              rows={2}
-              style={{
-                flex: 1,
-                padding: '8px',
-                border: '1px solid var(--border-color)',
-                borderRadius: '6px',
-                backgroundColor: 'var(--bg-secondary)',
-                color: 'var(--text-primary)',
-                fontSize: '13px',
-                fontFamily: 'inherit',
-                resize: 'none',
-                outline: 'none',
+              placeholder={configValid ? '问点什么...' : '先到设置里配 LLM 再问'}
+              disabled={!configValid}
+              rows={1}
+              onInput={(e) => {
+                e.target.style.height = 'auto'
+                e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'
               }}
             />
-            <button
-              onClick={() => handleSend()}
-              disabled={!configValid || isLoading || !input.trim()}
-              title="发送"
-              style={{
-                padding: '8px',
-                border: 'none',
-                borderRadius: '6px',
-                backgroundColor: (!configValid || isLoading || !input.trim()) ? 'var(--bg-tertiary)' : 'var(--accent-color)',
-                color: '#fff',
-                cursor: (!configValid || isLoading || !input.trim()) ? 'default' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <Send size={16} />
-            </button>
+            <div className="askcat-input-hint">Enter 发送，Shift+Enter 换行</div>
+            {isLoading ? (
+              <button
+                onClick={handleStop}
+                className="askcat-action-btn askcat-action-btn--stop"
+                title="停止"
+              >
+                <Square size={14} fill="currentColor" />
+              </button>
+            ) : (
+              <button
+                onClick={() => handleSend()}
+                disabled={!configValid || !input.trim()}
+                className="askcat-action-btn askcat-action-btn--send"
+                title="发送"
+              >
+                <ArrowUp size={16} strokeWidth={2.5} />
+              </button>
+            )}
           </div>
         </>
       )}

@@ -516,6 +516,83 @@ kbd {
   cursor: default;
 }
 
+/* 输入区:textarea 自适应高度 + 圆形操作按钮 */
+.askcat-input-area {
+  border-top: 1px solid var(--border-color);
+  padding: 10px 12px;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  position: relative;
+}
+.askcat-input-area textarea {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  line-height: 1.5;
+  resize: none;
+  outline: none;
+  min-height: 20px;
+  max-height: 120px;
+  overflow-y: auto;
+  transition: border-color 0.15s ease;
+}
+.askcat-input-area textarea:focus {
+  border-color: var(--accent-color);
+}
+.askcat-input-area textarea:disabled {
+  opacity: 0.5;
+}
+.askcat-input-hint {
+  position: absolute;
+  bottom: 14px;
+  right: 54px;
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+.askcat-input-area textarea:focus ~ .askcat-input-hint {
+  opacity: 0.5;
+}
+.askcat-action-btn {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.15s ease, opacity 0.15s ease;
+}
+.askcat-action-btn--send {
+  background-color: var(--accent-color);
+  color: #fff;
+}
+.askcat-action-btn--send:disabled {
+  background-color: var(--bg-tertiary);
+  color: var(--text-muted);
+  cursor: default;
+}
+.askcat-action-btn--send:not(:disabled):hover {
+  opacity: 0.85;
+}
+.askcat-action-btn--stop {
+  background-color: var(--text-secondary);
+  color: var(--bg-primary);
+}
+.askcat-action-btn--stop:hover {
+  background-color: var(--text-primary);
+}
+
 /* 推理过程:字号小 + 颜色淡 + 半透明背景,跟正式答案明显分级 */
 .askcat-thinking {
   margin-bottom: 0.8em;
