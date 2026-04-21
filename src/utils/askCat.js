@@ -205,6 +205,9 @@ export async function callLLM(messages, config, { signal } = {}) {
       signal,
     })
   } catch (networkErr) {
+    if (networkErr?.name === 'AbortError') {
+      throw networkErr
+    }
     // TypeError: Failed to fetch 典型就是 CORS 或断网
     const msg = networkErr?.message || String(networkErr)
     if (/CORS|Failed to fetch/i.test(msg)) {
