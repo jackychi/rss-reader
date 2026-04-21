@@ -521,7 +521,7 @@ kbd {
   border-top: 1px solid var(--border-color);
   padding: 10px 12px;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 8px;
   position: relative;
 }
@@ -537,10 +537,14 @@ kbd {
   line-height: 1.5;
   resize: none;
   outline: none;
-  min-height: 20px;
-  max-height: 120px;
+  min-height: 66px;
+  max-height: 240px;
   overflow-y: auto;
+  scrollbar-width: none;
   transition: border-color 0.15s ease;
+}
+.askcat-input-area textarea::-webkit-scrollbar {
+  display: none;
 }
 .askcat-input-area textarea:focus {
   border-color: var(--accent-color);
@@ -550,8 +554,8 @@ kbd {
 }
 .askcat-input-hint {
   position: absolute;
-  bottom: 14px;
-  right: 54px;
+  bottom: 16px;
+  right: 60px;
   font-size: 11px;
   color: var(--text-muted);
   opacity: 0;

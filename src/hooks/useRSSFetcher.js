@@ -1,10 +1,6 @@
 import { useState, useCallback, useRef } from 'react'
 import { CORS_WORKER_URL } from '../utils/constants'
-
-/**
- * useRSSFetcher Hook - RSS 订阅源获取与解析
- * 提供统一的订阅源获取逻辑、智能重试、缓存支持
- */
+import { saveArticles, saveFeedMeta } from '../utils/db'
 
 const BATCH_SIZE = 5
 const BATCH_DELAY = 300
@@ -35,7 +31,6 @@ export function useRSSFetcher() {
   const [progress, setProgress] = useState({ loaded: 0, total: 0 })
   const requestIdRef = useRef(0)
 
-  // 暴露 setArticles 方法用于外部设置文章（如离线加载）
   const setArticlesExternal = useCallback((newArticles) => {
     setArticles(newArticles)
   }, [])
@@ -45,10 +40,6 @@ export function useRSSFetcher() {
     const isXgoIng = feed.xmlUrl.includes('api.xgo.ing')
     const rsshubBase = 'https://rsshub-eta-topaz-88.vercel.app'
 
-    // 非 xgo.ing 的源走"直连 → 自建 CF Worker → rss2json"三层链路
-    // 直连成功的场景:源站自带 CORS 头(xyzfm.space、部分 GitHub Pages 等)
-    // 主力是 CF Worker,10 万次/天免费配额
-    // rss2json 作为最终兜底,免费版 10 条限制——只有 Worker 也挂了才会落到这一档
     const proxies = isXgoIng
       ? [`${rsshubBase}/${feed.xmlUrl.replace(/^https?:\/\//, '')}`]
       : [
@@ -132,7 +123,6 @@ export function useRSSFetcher() {
       return { feed, articles: articlesWithFeed }
     }
 
-    // 重试机制
     if (retryCount < MAX_RETRIES) {
       await new Promise(resolve => setTimeout(resolve, RETRY_DELAY))
       return fetchFeedWithRetry(feed, retryCount + 1)
@@ -141,7 +131,7 @@ export function useRSSFetcher() {
     throw new Error('All proxies failed')
   }, [])
 
-  // 批量获取所有订阅源
+  // 批量获取所有订阅源（首次访问，无缓存场景：清空文章 + 显示 loading）
   const fetchAllFeeds = useCallback(async (feedList, currentRequestId) => {
     if (currentRequestId !== requestIdRef.current) {
       return []
@@ -170,7 +160,6 @@ export function useRSSFetcher() {
         return []
       }
 
-      // 处理部分失败
       batchResults.forEach((result, idx) => {
         if (result.status === 'fulfilled' && result.value.articles.length > 0) {
           results.push(result.value)
@@ -216,13 +205,45 @@ export function useRSSFetcher() {
     return allArticles
   }, [fetchFeed])
 
-  // 创建新的请求
+  // 后台静默刷新：抓数据 + 写 IDB，不动 UI 状态
+  // 用于刷新按钮触发的 revalidate——保留当前文章在屏上，刷新完成后由调用方从 IDB 重新加载
+  const backgroundRefreshFeeds = useCallback(async (feedList, currentRequestId) => {
+    const results = []
+    const total = feedList.length
+    let failedCount = 0
+
+    for (let i = 0; i < total; i += BATCH_SIZE) {
+      if (currentRequestId !== requestIdRef.current) return null
+
+      const batch = feedList.slice(i, i + BATCH_SIZE)
+      const batchResults = await Promise.allSettled(batch.map(feed => fetchFeed(feed)))
+
+      if (currentRequestId !== requestIdRef.current) return null
+
+      // 每批抓完就写 IDB，不等到全部结束
+      for (const result of batchResults) {
+        if (result.status === 'fulfilled' && result.value.articles.length > 0) {
+          results.push(result.value)
+          await saveArticles(result.value.articles).catch(() => {})
+          await saveFeedMeta(result.value.feed.xmlUrl).catch(() => {})
+        } else {
+          failedCount++
+        }
+      }
+
+      if (i + BATCH_SIZE < total) {
+        await new Promise(resolve => setTimeout(resolve, BATCH_DELAY))
+      }
+    }
+
+    return { total, failedCount }
+  }, [fetchFeed])
+
   const createRequest = useCallback(() => {
     requestIdRef.current += 1
     return requestIdRef.current
   }, [])
 
-  // 搜索文章
   const searchArticles = useCallback((query, articleList) => {
     if (!query.trim()) return articleList
 
@@ -241,6 +262,7 @@ export function useRSSFetcher() {
     progress,
     fetchFeed,
     fetchAllFeeds,
+    backgroundRefreshFeeds,
     createRequest,
     searchArticles,
     setArticles: setArticlesExternal,

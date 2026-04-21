@@ -79,6 +79,7 @@ function App() {
   const [readerVisible, setReaderVisible] = useState(true)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [isSwitchingFeed, setIsSwitchingFeed] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [articleSearchQuery, setArticleSearchQuery] = useState('')
   // 阅读列表状态
@@ -210,7 +211,7 @@ function App() {
   }, [showReadingList])
 
   // 使用 RSS Fetcher Hook
-  const { loading, articles, error, progress, fetchFeed, fetchAllFeeds, createRequest, searchArticles, setArticles } = useRSSFetcher()
+  const { loading, articles, error, progress, fetchFeed, fetchAllFeeds, backgroundRefreshFeeds, createRequest, searchArticles, setArticles } = useRSSFetcher()
 
   // 网络状态检测
   const { isOnline } = useOnlineStatus()
@@ -630,9 +631,14 @@ function App() {
     setArticleSearchQuery('')
     setIsFullscreen(false)
 
+    // 立即清空,防止上一个视图的旧文章残留在屏上
+    setIsSwitchingFeed(true)
+    setArticles([])
+
     // 1. 先读 IDB 立即展示
     const cachedArticles = await getArticles(feed.xmlUrl)
     if (currentId !== requestIdRef.current) return
+    setIsSwitchingFeed(false)
     setArticles(cachedArticles)
 
     // 2. 离线到此为止
@@ -677,9 +683,15 @@ function App() {
     setArticleSearchQuery('')
     setIsFullscreen(false) // 切换到已缓存文章时退出全屏模式
 
+    // 立即清空,防止上一个视图的旧文章残留在屏上
+    setIsSwitchingFeed(true)
+    setArticles([])
+
     // 直接从 IndexedDB 加载所有缓存的文章
     console.log('[App] Loading all cached articles from IndexedDB')
     const cachedArticles = await getArticles()
+    if (currentId !== requestIdRef.current) return
+    setIsSwitchingFeed(false)
     if (cachedArticles.length > 0) {
       console.log('[App] Loaded', cachedArticles.length, 'cached articles')
       // 按发布时间倒序排列
@@ -709,10 +721,15 @@ function App() {
     setArticleSearchQuery('')
     setIsFullscreen(false)
 
+    // 立即清空,防止上一个视图的旧文章残留在屏上
+    setIsSwitchingFeed(true)
+    setArticles([])
+
     // 从 IDB 取全部文章,按分类下的 feedUrl 过滤
     const feedUrls = new Set(categoryObj.feeds.map(f => f.xmlUrl))
     const all = await getArticles()
     if (currentId !== requestIdRef.current) return
+    setIsSwitchingFeed(false)
     const filtered = all
       .filter(a => feedUrls.has(a.feedUrl))
       .sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate))
@@ -721,6 +738,8 @@ function App() {
     // 用户想拉新数据就点中间栏刷新按钮,走 handleRefresh 的分类分支
   }, [feeds, createRequest, setArticles])
 
+  // SWR 刷新:保留当前文章在屏上,后台抓数据 + 写 IDB,完成后从 IDB 重新加载
+  // 如果刷新期间用户切走了,requestIdRef 不匹配就跳过 UI 更新,但 IDB 已经写入
   const handleRefresh = useCallback(async () => {
     if (!selectedFeed) return
     const currentId = createRequest()
@@ -728,39 +747,53 @@ function App() {
     setIsRefreshing(true)
 
     try {
-      // 已缓存文章:从 IndexedDB 重新加载
+      // 已缓存文章:无网络请求,直接从 IDB 重新加载
       if (selectedFeed.xmlUrl === 'cached') {
-        console.log('[App] Refreshing cached articles from IndexedDB')
         const cachedArticles = await getArticles()
+        if (currentId !== requestIdRef.current) return
         if (cachedArticles.length > 0) {
           const sorted = cachedArticles.sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate))
           setArticles(sorted)
         }
-      } else if (selectedFeed.xmlUrl?.startsWith('category:')) {
-        // 分类视图:批量拉取该分类下所有 feed,拉完再从 IDB 过滤出该分类的完整列表
-        // 这样"历史缓存 + 新抓到的条目"一起展示,不会因刷新而"丢"掉旧的
+        return
+      }
+
+      // 确定要刷新的 feed 列表
+      let feedList = [selectedFeed]
+      if (selectedFeed.xmlUrl?.startsWith('category:')) {
         const categoryObj = feeds.find(c => c.category === selectedFeed.category)
-        if (categoryObj) {
-          console.log('[App] Refreshing all feeds in category:', selectedFeed.category)
-          await fetchAllFeeds(categoryObj.feeds, currentId)
-          if (currentId !== requestIdRef.current) return
-          // 拉取完毕 → 重新从 IDB 按分类过滤,展示完整历史
-          const feedUrls = new Set(categoryObj.feeds.map(f => f.xmlUrl))
-          const all = await getArticles()
-          if (currentId !== requestIdRef.current) return
-          const filtered = all
-            .filter(a => feedUrls.has(a.feedUrl))
-            .sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate))
-          setArticles(filtered)
-        }
+        if (!categoryObj) return
+        feedList = categoryObj.feeds
+      }
+
+      // 后台静默抓取,不动 UI(不清文章、不显示 spinner)
+      const result = await backgroundRefreshFeeds(feedList, currentId)
+      if (!result || currentId !== requestIdRef.current) return
+
+      // 刷新完成,从 IDB 重新加载当前视图
+      if (selectedFeed.xmlUrl?.startsWith('category:')) {
+        const categoryObj = feeds.find(c => c.category === selectedFeed.category)
+        if (!categoryObj) return
+        const feedUrls = new Set(categoryObj.feeds.map(f => f.xmlUrl))
+        const all = await getArticles()
+        if (currentId !== requestIdRef.current) return
+        const filtered = all
+          .filter(a => feedUrls.has(a.feedUrl))
+          .sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate))
+        setArticles(filtered)
       } else {
-        // 单个订阅源:正常刷新
-        await fetchAllFeeds([selectedFeed], currentId)
+        const cachedArticles = await getArticles(selectedFeed.xmlUrl)
+        if (currentId !== requestIdRef.current) return
+        setArticles(cachedArticles)
+      }
+
+      if (result.failedCount > 0) {
+        console.warn(`[App] Refresh completed with ${result.failedCount} failed feed(s)`)
       }
     } finally {
       setIsRefreshing(false)
     }
-  }, [selectedFeed, feeds, createRequest, fetchAllFeeds, setArticles])
+  }, [selectedFeed, feeds, createRequest, backgroundRefreshFeeds, setArticles])
 
   // 标记当前订阅源(或 "已缓存文章" / 分类视图下所有 feed)的未读文章为已读
   // 直接从 unreadByFeed 里取 key,不需要回头扫 articles
@@ -1129,7 +1162,7 @@ function App() {
             articles={filteredArticles}
             selectedFeed={selectedFeed}
             selectedArticle={selectedArticle}
-            loading={loading}
+            loading={loading || isSwitchingFeed}
             error={error}
             onSelectArticle={handleSelectArticle}
             unreadArticles={unreadArticles}

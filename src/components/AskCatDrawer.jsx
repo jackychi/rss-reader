@@ -447,10 +447,10 @@ export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticl
               onKeyDown={handleKeyDown}
               placeholder={configValid ? '问点什么...' : '先到设置里配 LLM 再问'}
               disabled={!configValid}
-              rows={1}
+              rows={3}
               onInput={(e) => {
                 e.target.style.height = 'auto'
-                e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'
+                e.target.style.height = Math.min(e.target.scrollHeight, 240) + 'px'
               }}
             />
             <div className="askcat-input-hint">Enter 发送，Shift+Enter 换行</div>

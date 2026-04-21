@@ -200,7 +200,7 @@ export async function callLLM(messages, config, { signal } = {}) {
         model: config.model,
         messages,
         temperature: 0.3,
-        max_tokens: 2000,
+        max_tokens: 8000,
       }),
       signal,
     })
@@ -235,9 +235,16 @@ export async function callLLM(messages, config, { signal } = {}) {
   }
 
   // 两条路径合并:优先显式 reasoning_content 字段,否则从 content 里剥 <think>
+  // Truncation detection
+  const finishReason = data?.choices?.[0]?.finish_reason
+  let content = rawContent.trim()
+  if (finishReason === 'length') {
+    content += '\n\n---\n⚠️ 回答因 token 上限被截断，可以缩小问题范围后重试。'
+  }
+
   const explicitReasoning = typeof msg.reasoning_content === 'string' ? msg.reasoning_content.trim() : ''
   if (explicitReasoning) {
-    return { content: rawContent.trim(), reasoning: explicitReasoning }
+    return { content, reasoning: explicitReasoning }
   }
-  return extractThinkTag(rawContent)
+  return extractThinkTag(content)
 }
