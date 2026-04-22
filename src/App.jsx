@@ -237,8 +237,10 @@ function App() {
 
   // 增量维护 unreadByFeed:新 articles 里不在 readSet 的 key 加入对应 feed 的未读集合
   // 只加、不减(文章从 articles 里消失不等于已读)
+  // 守卫 idbReady:readSet 从 IDB 加载完成之前不执行,避免用空 readSet 把所有文章
+  // 算成未读,导致 sidebar 未读数先飙高再回落的闪烁
   useEffect(() => {
-    if (articles.length === 0) return
+    if (!idbReady || articles.length === 0) return
     setUnreadByFeed(prev => {
       let changed = false
       const next = new Map(prev)
@@ -255,7 +257,7 @@ function App() {
       }
       return changed ? next : prev
     })
-  }, [articles, readSet])
+  }, [articles, readSet, idbReady])
 
   // ============ 初始化展开状态 ============
   useEffect(() => {
