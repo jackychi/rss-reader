@@ -1,7 +1,26 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { X, ChevronRight, ExternalLink, FileText, Play, Pause, Download, Maximize2, Minimize2, Bookmark, BookmarkCheck, Rss, MoreHorizontal, Copy, Check, Send } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
+
+function addCJKSpacing(text) {
+  if (!text) return text
+  return text
+    .replace(/([\u4e00-\u9fa5\u3040-\u309f\u30a0-\u30ff])([A-Za-z0-9])/g, '$1 $2')
+    .replace(/([A-Za-z0-9])([\u4e00-\u9fa5\u3040-\u309f\u30a0-\u30ff])/g, '$1 $2')
+}
+
+function renderFeedIntroHTML(content) {
+  const html = marked.parse(addCJKSpacing(content || ''), { breaks: false, gfm: true })
+  return DOMPurify.sanitize(html, {
+    ADD_ATTR: ['target', 'rel'],
+  }).replace(
+    /<a([^>]*?)href="(https?:\/\/[^"]+)"([^>]*?)>/g,
+    '<a$1href="$2"$3 target="_blank" rel="noopener noreferrer">'
+  )
+}
 
 /**
  * OriginalMenu - iframe 原文工具栏的三点下拉菜单
@@ -26,7 +45,9 @@ function OriginalMenu({ link }) {
       await navigator.clipboard.writeText(link || '')
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
-    } catch {}
+    } catch {
+      // Clipboard can be unavailable in restricted browser contexts.
+    }
     setMenuOpen(false)
   }
 
@@ -124,7 +145,12 @@ export default function Reader({
   onToggleFullscreen,
   isInReadingList = false,
   onToggleReadingList,
-  onNavigateToFeed
+  onNavigateToFeed,
+  selectedFeed = null,
+  feedIntro = '',
+  feedIntroStatus = 'idle',
+  feedIntroError = null,
+  onOpenAskCatSettings
 }) {
   const [isPlaying, setIsPlaying] = useState(false)
   const [audioProgress, setAudioProgress] = useState(initialAudioPosition)
@@ -136,6 +162,7 @@ export default function Reader({
   const lastSavedTimeRef = useRef(0)  // 上次记录的时间
   const progressRAFRef = useRef(null)  // requestAnimationFrame ID
   const saveTimerRef = useRef(null)  // 延迟保存定时器
+  const feedIntroHTML = useMemo(() => renderFeedIntroHTML(feedIntro), [feedIntro])
 
   // 恢复阅读滚动位置
   useEffect(() => {
@@ -758,9 +785,52 @@ export default function Reader({
           </div>
         </>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)' }}>
-          <FileText size={64} style={{ opacity: 0.2, marginBottom: '16px' }} />
-          <p style={{ color: 'var(--text-muted)' }}>Select an article to read</p>
+        <div className="reader-empty-state">
+          {selectedFeed?.title ? (
+            <div className="feed-intro-card">
+              <div className="feed-intro-kicker">
+                <Rss size={16} />
+                <span>栏目介绍</span>
+              </div>
+              <h2 className="feed-intro-title">{selectedFeed.title}</h2>
+
+              {feedIntroStatus === 'loading' && (
+                <div className="feed-intro-loading">
+                  <span className="feed-intro-spinner" />
+                  <span>正在分析这个栏目最近的内容...</span>
+                </div>
+              )}
+
+              {feedIntroStatus === 'ready' && feedIntro && (
+                <div
+                  className="feed-intro-content"
+                  dangerouslySetInnerHTML={{ __html: feedIntroHTML }}
+                />
+              )}
+
+              {feedIntroStatus === 'unconfigured' && (
+                <div className="feed-intro-hint">
+                  <p>配置 Ask Cat 的大模型后，点击订阅源会自动生成栏目介绍。</p>
+                  <button type="button" onClick={onOpenAskCatSettings}>
+                    打开 Ask Cat 设置
+                  </button>
+                </div>
+              )}
+
+              {feedIntroStatus === 'empty' && (
+                <p className="feed-intro-muted">这个栏目还没有可分析的缓存文章，刷新或等待文章加载后再试。</p>
+              )}
+
+              {feedIntroStatus === 'error' && (
+                <p className="feed-intro-muted">栏目介绍生成失败：{feedIntroError}</p>
+              )}
+            </div>
+          ) : (
+            <>
+              <FileText size={64} style={{ opacity: 0.2, marginBottom: '16px' }} />
+              <p style={{ color: 'var(--text-muted)' }}>Select an article to read</p>
+            </>
+          )}
         </div>
       )}
     </section>

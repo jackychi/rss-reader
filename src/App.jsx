@@ -10,6 +10,7 @@ import { useRSSFetcher } from './hooks/useRSSFetcher'
 import { useOnlineStatus } from './hooks/useOnlineStatus'
 import { saveArticles, getArticles, clearExpiredCache, saveToReadingList, removeFromReadingList, getReadingList, saveFeedMeta, getFeedMeta, getAllReadStatus, saveReadStatusBatch, pruneOrphanedArticles } from './utils/db'
 import { getArticleKey } from './utils/articleKey'
+import { callLLM, getLLMConfig, isConfigValid } from './utils/askCat'
 import { getSyncId, setSyncId, clearSyncId, generateSyncId, syncNow } from './utils/sync'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import Header from './components/Header'
@@ -28,6 +29,7 @@ const STORAGE_KEYS = {
   EXPANDED_CATS: 'rss-reader-expanded-cats',
   READ_POSITIONS: 'rss-reader-read-positions',
   AUDIO_POSITIONS: 'rss-reader-audio-positions',
+  FEED_INTROS: 'rss-reader-feed-intros',
 }
 
 // 已迁移到 IndexedDB 的遗留 localStorage 键,启动时一次性清掉
@@ -48,6 +50,32 @@ function toParagraphHtml(text) {
     .join('')
 }
 
+function buildFeedIntroMessages(feed, articles) {
+  const recentArticles = [...articles]
+    .sort((a, b) => new Date(b.pubDate || b.isoDate || 0) - new Date(a.pubDate || a.isoDate || 0))
+    .slice(0, 12)
+    .map((article, index) => {
+      const date = article.pubDate || article.isoDate || ''
+      const snippet = (article.contentSnippet || article.description || '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 180)
+      return `${index + 1}. ${article.title || '(无标题)'}${date ? ` (${date})` : ''}\n${snippet}`
+    })
+    .join('\n\n')
+
+  return [
+    {
+      role: 'system',
+      content: '你是 CatReader 里的 RSS 栏目编辑。根据栏目最近文章，写一个中文栏目介绍，帮助读者判断这个订阅源主要关注什么。不要编造文章列表之外的信息。',
+    },
+    {
+      role: 'user',
+      content: `订阅源: ${feed.title}\nFeed URL: ${feed.xmlUrl}\n\n最近文章:\n${recentArticles}\n\n请输出:\n- 1 句总体定位\n- 2 到 3 个主要关注方向\n- 1 句适合什么读者\n\n要求简洁、自然，不超过 180 字。`,
+    },
+  ]
+}
+
 function App() {
   // ============ 状态管理 ============
   // 订阅源 - 持久化
@@ -62,6 +90,8 @@ function App() {
   const [readPositions, setReadPositions] = useLocalStorage(STORAGE_KEYS.READ_POSITIONS, {})
   // 音频播放位置 - 持久化
   const [audioPositions, setAudioPositions] = useLocalStorage(STORAGE_KEYS.AUDIO_POSITIONS, {})
+  // LLM 生成的订阅源栏目介绍,按 feed URL 缓存,避免重复消耗模型调用
+  const [feedIntros, setFeedIntros] = useLocalStorage(STORAGE_KEYS.FEED_INTROS, {})
 
   // 已读/未读状态 - 内存镜像,持久化层是 IndexedDB readStatus store
   // readSet: 已读文章 key 集合,O(1) 查询
@@ -90,6 +120,8 @@ function App() {
   const [isAskCatOpen, setIsAskCatOpen] = useState(false)
   // 快捷键帮助浮层
   const [showShortcutsOverlay, setShowShortcutsOverlay] = useState(false)
+  const [feedIntroStatus, setFeedIntroStatus] = useState('idle') // idle | loading | ready | empty | unconfigured | error
+  const [feedIntroError, setFeedIntroError] = useState(null)
 
   // 跨设备同步状态
   const [syncId, setSyncIdState] = useState(() => getSyncId())
@@ -218,6 +250,7 @@ function App() {
 
   // 请求 ID，用于处理竞态条件
   const requestIdRef = useRef(0)
+  const feedIntroAbortRef = useRef(null)
 
   // 过滤后的文章（支持搜索）
   const filteredArticles = useMemo(() => {
@@ -234,6 +267,87 @@ function App() {
       console.error('[App] Failed to cache articles:', err)
     })
   }, [articles, loading])
+
+  useEffect(() => {
+    let cancelled = false
+    const scheduleFeedIntroState = (status, error = null) => {
+      queueMicrotask(() => {
+        if (cancelled) return
+        setFeedIntroError(error)
+        setFeedIntroStatus(status)
+      })
+    }
+
+    feedIntroAbortRef.current?.abort()
+
+    const isSingleFeed = selectedFeed?.xmlUrl &&
+      selectedFeed.xmlUrl !== 'cached' &&
+      !selectedFeed.xmlUrl.startsWith('category:')
+
+    if (!isSingleFeed || selectedArticle || showReadingList) {
+      scheduleFeedIntroState('idle')
+      return () => { cancelled = true }
+    }
+
+    const cached = feedIntros[selectedFeed.xmlUrl]?.content
+    if (cached) {
+      scheduleFeedIntroState('ready')
+      return () => { cancelled = true }
+    }
+
+    if (isSwitchingFeed || loading) {
+      scheduleFeedIntroState('loading')
+      return () => { cancelled = true }
+    }
+
+    if (articles.length === 0) {
+      scheduleFeedIntroState('empty')
+      return () => { cancelled = true }
+    }
+
+    const config = getLLMConfig()
+    if (!isConfigValid(config)) {
+      scheduleFeedIntroState('unconfigured')
+      return () => { cancelled = true }
+    }
+
+    const controller = new AbortController()
+    feedIntroAbortRef.current = controller
+    scheduleFeedIntroState('loading')
+
+    callLLM(buildFeedIntroMessages(selectedFeed, articles), config, { signal: controller.signal })
+      .then((reply) => {
+        if (controller.signal.aborted) return
+        setFeedIntros((prev) => ({
+          ...prev,
+          [selectedFeed.xmlUrl]: {
+            content: reply.content,
+            generatedAt: Date.now(),
+            articleCount: articles.length,
+          },
+        }))
+        setFeedIntroStatus('ready')
+      })
+      .catch((err) => {
+        if (err?.name === 'AbortError') return
+        console.error('[FeedIntro] LLM call failed:', err)
+        scheduleFeedIntroState('error', err?.message || '生成栏目介绍失败')
+      })
+
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [
+    selectedFeed,
+    selectedArticle,
+    showReadingList,
+    feedIntros,
+    articles,
+    loading,
+    isSwitchingFeed,
+    setFeedIntros,
+  ])
 
   // 增量维护 unreadByFeed:新 articles 里不在 readSet 的 key 加入对应 feed 的未读集合
   // 只加、不减(文章从 articles 里消失不等于已读)
@@ -1199,6 +1313,11 @@ function App() {
             isInReadingList={isArticleInReadingList()}
             onToggleReadingList={handleToggleArticleBookmark}
             onNavigateToFeed={handleNavigateToFeed}
+            selectedFeed={selectedFeed}
+            feedIntro={selectedFeed?.xmlUrl ? feedIntros[selectedFeed.xmlUrl]?.content || '' : ''}
+            feedIntroStatus={feedIntroStatus}
+            feedIntroError={feedIntroError}
+            onOpenAskCatSettings={() => setIsAskCatOpen(true)}
           />
         )}
       </div>
