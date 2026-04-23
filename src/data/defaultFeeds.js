@@ -47,7 +47,6 @@ export const defaultFeeds = [
       { title: "lcamtuf.substack.com", xmlUrl: "https://lcamtuf.substack.com/feed" },
       { title: "mitchellh.com", xmlUrl: "https://mitchellh.com/feed.xml" },
       { title: "dynomight.net", xmlUrl: "https://dynomight.net/feed.xml" },
-      { title: "utcc.utoronto.ca/~cks", xmlUrl: "https://utcc.utoronto.ca/~cks/space/blog/?atom" },
       { title: "xeiaso.net", xmlUrl: "https://xeiaso.net/blog.rss" },
       { title: "devblogs.microsoft.com/oldnewthing", xmlUrl: "https://devblogs.microsoft.com/oldnewthing/feed" },
       { title: "righto.com", xmlUrl: "https://www.righto.com/feeds/posts/default" },
@@ -129,13 +128,13 @@ export const defaultFeeds = [
     feeds: [
       { title: "游荡集", xmlUrl: "https://feed.xyzfm.space/6m6qmdfmaf6d" },
       { title: "古典不dan调", xmlUrl: "https://feed.xyzfm.space/64xxbj6nmcpe" },
-      { title: "阮一峰的网络日志", xmlUrl: "http://feeds.feedburner.com/ruanyifeng" },
+      { title: "阮一峰的网络日志", xmlUrl: "https://feeds.feedburner.com/ruanyifeng" },
       { title: "汀见(原:大脸撑在小胸上)", xmlUrl: "https://rsshub-eta-topaz-88.vercel.app/youtube/channel/UCv8djBlOdCZWZ-7Nal-3pJQ" },
       { title: "王志安", xmlUrl: "https://www.youtube.com/feeds/videos.xml?channel_id=UCBKDRq35-L8xev4O7ZqBeLg" },      
       { title: "MacTalk·夜航西飞", xmlUrl: "https://feed.xyzfm.space/9mkbwqtmr8ma" },
-      { title: "没折腰FM", xmlUrl: "http://www.ximalaya.com/album/43584169.xml" },
+      { title: "没折腰FM", xmlUrl: "https://www.ximalaya.com/album/43584169.xml" },
       { title: "岩中花述", xmlUrl: "https://feed.xyzfm.space/hwen8wf69c6g" },
-      { title: "银杏树下", xmlUrl: "http://www.ximalaya.com/album/51007459.xml" },
+      { title: "银杏树下", xmlUrl: "https://www.ximalaya.com/album/51007459.xml" },
       { title: "柴静 Chai Jing", xmlUrl: "https://www.youtube.com/feeds/videos.xml?channel_id=UCjuNibFJ21MiSNpu8LZyV4w" },
       { title: "萧泊内", xmlUrl: "https://www.ximalaya.com/album/70410212.xml" },
       { title: "张小珺Jùn｜商业访谈录", xmlUrl: "https://feed.xyzfm.space/dk4yh3pkpjp3" },
@@ -156,7 +155,7 @@ export const defaultFeeds = [
   {
     category: "科技 (Tech)",
     feeds: [
-      { title: "Ars Technica", xmlUrl: "http://feeds.arstechnica.com/arstechnica/index/" },
+      { title: "Ars Technica", xmlUrl: "https://feeds.arstechnica.com/arstechnica/index/" },
       { title: "TechCrunch", xmlUrl: "https://techcrunch.com/feed/" },
       { title: "WIRED", xmlUrl: "https://www.wired.com/feed/rss" },
       { title: "Marques Brownlee", xmlUrl: "https://www.youtube.com/feeds/videos.xml?channel_id=UCBJycsmduvYEL83R_U4JriQ" },
@@ -173,7 +172,7 @@ export const defaultFeeds = [
   {
     category: "英文个人 Blog",
     feeds: [
-      { title: "Gretchen Rubin", xmlUrl: "http://feeds.feedburner.com/GretchenRubin" },
+      { title: "Gretchen Rubin", xmlUrl: "https://feeds.feedburner.com/GretchenRubin" },
       { title: "Derek Sivers", xmlUrl: "https://sive.rs/en.atom" },
       { title: "Wait But Why", xmlUrl: "https://waitbutwhy.com/feed" },
       { title: "Stratechery", xmlUrl: "https://stratechery.com/feed/" },
@@ -195,7 +194,7 @@ export const defaultFeeds = [
   {
     category: "摄影",
     feeds: [
-      { title: "相机夜话", xmlUrl: "http://www.ximalaya.com/album/41782767.xml" },
+      { title: "相机夜话", xmlUrl: "https://www.ximalaya.com/album/41782767.xml" },
       { title: "东胶影厂", xmlUrl: "https://www.youtube.com/feeds/videos.xml?channel_id=UCc7UU0Pd6sZKzYkC-NRvdlw" },
       { title: "过片Thumb Action", xmlUrl: "https://www.youtube.com/feeds/videos.xml?channel_id=UCNhMSkTefqXoQjwIdAwi5Gw" },
       { title: "Bobby Tonelli", xmlUrl: "https://www.youtube.com/feeds/videos.xml?channel_id=UC0Vjgs42ZJ9E9HiILq2D9Yw" },

@@ -86,7 +86,9 @@ export async function saveArticles(articles) {
 }
 
 // 从 IndexedDB 获取文章
-export async function getArticles(feedUrl = null, limit = 100) {
+// 注意:不用 IDB index limit,因为 limit 按主键序截取而非按时间,
+// 会漏掉最新文章(如 ximalaya 256 期只取到前 100 期老数据)
+export async function getArticles(feedUrl = null, limit = null) {
   try {
     const db = await openDB()
     const tx = db.transaction('articles', 'readonly')
@@ -95,13 +97,16 @@ export async function getArticles(feedUrl = null, limit = 100) {
 
     return new Promise((resolve, reject) => {
       const request = index
-        ? index.getAll(IDBKeyRange.only(feedUrl), limit)
+        ? index.getAll(IDBKeyRange.only(feedUrl))
         : store.getAll()
 
       request.onsuccess = () => {
-        const articles = request.result || []
+        let articles = request.result || []
         // 按发布时间排序
         articles.sort((a, b) => new Date(b.isoDate) - new Date(a.isoDate))
+        if (limit && articles.length > limit) {
+          articles = articles.slice(0, limit)
+        }
         resolve(articles)
       }
 
