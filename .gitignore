@@ -31,6 +31,7 @@ package-lock.json
 
 # Serena (AI assistant)
 .serena/
+.claude/
 
 # Marp 渲染产物(由 docs/*.md 源文件按需生成,不入库)
 docs/*.html

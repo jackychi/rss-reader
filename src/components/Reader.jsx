@@ -324,6 +324,20 @@ export default function Reader({
     selectedArticle.content || selectedArticle['content:encoded'] || ''
   ) : []
 
+  // 复制 shownotes
+  const [shownotesCopied, setShownotesCopied] = useState(false)
+  const handleCopyShownotes = async (e) => {
+    e.stopPropagation()
+    try {
+      const text = chapters.map(c => `${c.label} ${c.title}`).join('\n')
+      await navigator.clipboard.writeText(text)
+      setShownotesCopied(true)
+      setTimeout(() => setShownotesCopied(false), 1500)
+    } catch {
+      // Clipboard can be unavailable in restricted browser contexts.
+    }
+  }
+
   return (
     <section className={`reader flex-1 overflow-hidden flex flex-col ${isFullscreen ? 'fullscreen-reader' : ''}`}>
       {selectedArticle ? (
@@ -687,12 +701,44 @@ export default function Reader({
                       }}
                     >
                       <div style={{
-                        fontSize: '12px',
-                        fontWeight: '600',
-                        color: 'var(--text-secondary)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
                         marginBottom: '8px',
                       }}>
-                        时间轴
+                        <span style={{
+                          fontSize: '12px',
+                          fontWeight: '600',
+                          color: 'var(--text-secondary)',
+                        }}>
+                          时间轴
+                        </span>
+                        <button
+                          onClick={handleCopyShownotes}
+                          title="复制 shownotes"
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            padding: '4px 8px',
+                            borderRadius: '4px',
+                            border: 'none',
+                            backgroundColor: shownotesCopied ? 'var(--accent-color-dim, rgba(59,130,246,0.1))' : 'transparent',
+                            color: shownotesCopied ? 'var(--accent-color)' : 'var(--text-muted)',
+                            fontSize: '11px',
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease',
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!shownotesCopied) e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!shownotesCopied) e.currentTarget.style.backgroundColor = 'transparent'
+                          }}
+                        >
+                          {shownotesCopied ? <Check size={12} /> : <Copy size={12} />}
+                          {shownotesCopied ? '已复制' : '复制'}
+                        </button>
                       </div>
                       <div style={{
                         display: 'flex',
