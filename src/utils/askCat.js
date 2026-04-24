@@ -41,6 +41,11 @@ export function saveLLMConfig(config) {
     contextSize: Math.max(5, Math.min(200, Number(config.contextSize) || 30)),
   }
   localStorage.setItem(CONFIG_KEY, JSON.stringify(clean))
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('rss-reader-llm-config-changed', {
+      detail: clean,
+    }))
+  }
   return clean
 }
 

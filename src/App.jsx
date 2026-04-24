@@ -76,6 +76,18 @@ function buildFeedIntroMessages(feed, articles) {
   ]
 }
 
+function getFeedIntroFingerprint(articles) {
+  return [...articles]
+    .sort((a, b) => new Date(b.pubDate || b.isoDate || 0) - new Date(a.pubDate || a.isoDate || 0))
+    .slice(0, 12)
+    .map((article) => [
+      getArticleKey(article),
+      article.pubDate || article.isoDate || '',
+      article.title || '',
+    ].join('|'))
+    .join('||')
+}
+
 function App() {
   // ============ 状态管理 ============
   // 订阅源 - 持久化
@@ -122,6 +134,7 @@ function App() {
   const [showShortcutsOverlay, setShowShortcutsOverlay] = useState(false)
   const [feedIntroStatus, setFeedIntroStatus] = useState('idle') // idle | loading | ready | empty | unconfigured | error
   const [feedIntroError, setFeedIntroError] = useState(null)
+  const [llmConfigVersion, setLlmConfigVersion] = useState(0)
 
   // 跨设备同步状态
   const [syncId, setSyncIdState] = useState(() => getSyncId())
@@ -269,6 +282,16 @@ function App() {
   }, [articles, loading])
 
   useEffect(() => {
+    const handleLLMConfigChange = () => setLlmConfigVersion((v) => v + 1)
+    window.addEventListener('rss-reader-llm-config-changed', handleLLMConfigChange)
+    window.addEventListener('storage', handleLLMConfigChange)
+    return () => {
+      window.removeEventListener('rss-reader-llm-config-changed', handleLLMConfigChange)
+      window.removeEventListener('storage', handleLLMConfigChange)
+    }
+  }, [])
+
+  useEffect(() => {
     let cancelled = false
     const scheduleFeedIntroState = (status, error = null) => {
       queueMicrotask(() => {
@@ -289,8 +312,9 @@ function App() {
       return () => { cancelled = true }
     }
 
-    const cached = feedIntros[selectedFeed.xmlUrl]?.content
-    if (cached) {
+    const fingerprint = getFeedIntroFingerprint(articles)
+    const cachedIntro = feedIntros[selectedFeed.xmlUrl]
+    if (cachedIntro?.content && cachedIntro.fingerprint === fingerprint) {
       scheduleFeedIntroState('ready')
       return () => { cancelled = true }
     }
@@ -324,6 +348,7 @@ function App() {
             content: reply.content,
             generatedAt: Date.now(),
             articleCount: articles.length,
+            fingerprint,
           },
         }))
         setFeedIntroStatus('ready')
@@ -346,6 +371,7 @@ function App() {
     articles,
     loading,
     isSwitchingFeed,
+    llmConfigVersion,
     setFeedIntros,
   ])
 
