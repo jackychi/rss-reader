@@ -88,6 +88,21 @@ function getFeedIntroFingerprint(articles) {
     .join('||')
 }
 
+export function getLLMConfigFingerprint(config) {
+  return JSON.stringify({
+    baseUrl: config?.baseUrl || '',
+    apiKey: config?.apiKey || '',
+    model: config?.model || '',
+    contextSize: config?.contextSize || '',
+  })
+}
+
+export function isFeedIntroCacheValid(cachedIntro, articles, config) {
+  if (!cachedIntro?.content) return false
+  return cachedIntro.fingerprint === getFeedIntroFingerprint(articles) &&
+    cachedIntro.configFingerprint === getLLMConfigFingerprint(config)
+}
+
 function App() {
   // ============ 状态管理 ============
   // 订阅源 - 持久化
@@ -312,9 +327,11 @@ function App() {
       return () => { cancelled = true }
     }
 
+    const config = getLLMConfig()
     const fingerprint = getFeedIntroFingerprint(articles)
+    const configFingerprint = getLLMConfigFingerprint(config)
     const cachedIntro = feedIntros[selectedFeed.xmlUrl]
-    if (cachedIntro?.content && cachedIntro.fingerprint === fingerprint) {
+    if (isFeedIntroCacheValid(cachedIntro, articles, config)) {
       scheduleFeedIntroState('ready')
       return () => { cancelled = true }
     }
@@ -329,7 +346,6 @@ function App() {
       return () => { cancelled = true }
     }
 
-    const config = getLLMConfig()
     if (!isConfigValid(config)) {
       scheduleFeedIntroState('unconfigured')
       return () => { cancelled = true }
@@ -349,6 +365,7 @@ function App() {
             generatedAt: Date.now(),
             articleCount: articles.length,
             fingerprint,
+            configFingerprint,
           },
         }))
         setFeedIntroStatus('ready')
