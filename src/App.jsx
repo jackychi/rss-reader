@@ -11,6 +11,7 @@ import { useOnlineStatus } from './hooks/useOnlineStatus'
 import { saveArticles, getArticles, clearExpiredCache, saveToReadingList, removeFromReadingList, getReadingList, saveFeedMeta, getFeedMeta, getAllReadStatus, saveReadStatusBatch, pruneOrphanedArticles } from './utils/db'
 import { getArticleKey } from './utils/articleKey'
 import { callLLM, getLLMConfig, isConfigValid } from './utils/askCat'
+import { getFeedIntroFingerprint, getLLMConfigFingerprint, isFeedIntroCacheValid } from './utils/feedIntroCache'
 import { getSyncId, setSyncId, clearSyncId, generateSyncId, syncNow } from './utils/sync'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import Header from './components/Header'
@@ -74,33 +75,6 @@ function buildFeedIntroMessages(feed, articles) {
       content: `订阅源: ${feed.title}\nFeed URL: ${feed.xmlUrl}\n\n最近文章:\n${recentArticles}\n\n请输出:\n- 1 句总体定位\n- 2 到 3 个主要关注方向\n- 1 句适合什么读者\n\n要求简洁、自然，不超过 180 字。`,
     },
   ]
-}
-
-function getFeedIntroFingerprint(articles) {
-  return [...articles]
-    .sort((a, b) => new Date(b.pubDate || b.isoDate || 0) - new Date(a.pubDate || a.isoDate || 0))
-    .slice(0, 12)
-    .map((article) => [
-      getArticleKey(article),
-      article.pubDate || article.isoDate || '',
-      article.title || '',
-    ].join('|'))
-    .join('||')
-}
-
-export function getLLMConfigFingerprint(config) {
-  return JSON.stringify({
-    baseUrl: config?.baseUrl || '',
-    apiKey: config?.apiKey || '',
-    model: config?.model || '',
-    contextSize: config?.contextSize || '',
-  })
-}
-
-export function isFeedIntroCacheValid(cachedIntro, articles, config) {
-  if (!cachedIntro?.content) return false
-  return cachedIntro.fingerprint === getFeedIntroFingerprint(articles) &&
-    cachedIntro.configFingerprint === getLLMConfigFingerprint(config)
 }
 
 function App() {

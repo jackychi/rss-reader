@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { getLLMConfigFingerprint, isFeedIntroCacheValid } from '../App'
+import { getLLMConfigFingerprint, isFeedIntroCacheValid } from '../utils/feedIntroCache'
 
 const articles = [
   {
