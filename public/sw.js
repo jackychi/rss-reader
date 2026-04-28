@@ -58,6 +58,13 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // CatReader 后端 API 一律直连,不进任何缓存策略。
+  // 原因:/api/user-state 是读写用户状态的接口,SW 拦下来再 cache.put 会让
+  // 多设备同步状态错乱;且 dev 模式下 SW 自身偶发死锁,会把请求挂到 30s 超时。
+  if (url.pathname.startsWith('/api/')) {
+    return;
+  }
+
   // API 请求 - Stale-While-Revalidate 策略
   if (isApiRequest(url)) {
     event.respondWith(staleWhileRevalidate(request));

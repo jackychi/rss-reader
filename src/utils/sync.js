@@ -23,6 +23,8 @@ import {
 
 const SYNC_ENDPOINT = `${CATREADER_API_URL}/api/user-state`
 const SYNC_ID_KEY = 'rss-reader-sync-id'
+const SYNC_REQUEST_TIMEOUT_MS = 30000
+const SYNC_TOTAL_TIMEOUT_MS = 60000
 export const SYNC_VERSION = 2
 
 // ============ Sync ID 管理 ============
@@ -35,6 +37,14 @@ export function getSyncId() {
   }
 }
 
+export function ensureSyncId() {
+  const existing = getSyncId()
+  if (existing) return existing
+  const id = generateSyncId()
+  localStorage.setItem(SYNC_ID_KEY, id)
+  return id
+}
+
 export function setSyncId(id) {
   // 粘贴场景下 ID 可能混入空格、换行、零宽字符(尤其是从聊天工具复制过来)
   // 一律剥干净再校验,避免"看着合法但 regex 过不了"的隐性失败
@@ -42,7 +52,7 @@ export function setSyncId(id) {
     .replace(/\s+/g, '')
     .replace(/[\u200B-\u200D\uFEFF]/g, '')
   if (!/^[a-zA-Z0-9-]{32,128}$/.test(normalized)) {
-    throw new Error('Sync ID 格式不合法(需 32-128 位字母数字或短横线)')
+    throw new Error('用户 ID 格式不合法(需 32-128 位字母数字或短横线)')
   }
   localStorage.setItem(SYNC_ID_KEY, normalized)
   return normalized
@@ -161,10 +171,10 @@ function mergePositionMaps(a, b, now = Date.now()) {
   return merged
 }
 
-async function readLocal(localState = {}) {
+async function readLocal(id, localState = {}) {
   const [readStatus, readingList] = await Promise.all([
-    getAllReadStatusRecords(),
-    getReadingListWithTombstones(),
+    getAllReadStatusRecords(id),
+    getReadingListWithTombstones(id),
   ])
   return {
     version: SYNC_VERSION,
@@ -207,34 +217,49 @@ async function enrichReadingListWithContent(list) {
   }))
 }
 
-async function writeLocal(merged) {
+async function writeLocal(id, merged) {
   await Promise.all([
-    saveReadStatusRecordsBatch(merged.readStatus.filter((r) => (r.status || 'read') === 'read')),
+    saveReadStatusRecordsBatch(merged.readStatus.filter((r) => (r.status || 'read') === 'read'), id),
     // 写 readingList 时保留本地已有的 content,避免覆盖丢失
     // 场景:远端 item 被 stripReadingListForWire 剥离了 content,回填时 articles store
     // 可能已过期清理,此时直接 put 会把本地有 content 的记录覆盖成无 content 的
     Promise.all(merged.readingList.map(async (item) => {
       if (item.content) {
         // merged item 已有 content,直接写
-        return saveToReadingList(item)
+        return saveToReadingList(item, id)
       }
       // 尝试从本地 readingList store 取已有记录的 content
-      const existing = await getReadingListItemById(item.id)
+      const existing = await getReadingListItemById(item.id, id)
       if (existing?.content) {
-        return saveToReadingList({ ...item, content: existing.content, contentSnippet: existing.contentSnippet || item.contentSnippet })
+        return saveToReadingList({ ...item, content: existing.content, contentSnippet: existing.contentSnippet || item.contentSnippet }, id)
       }
       // 本地也没有,从 articles store 回填
       const article = await getArticleById(item.id)
       if (article?.content) {
-        return saveToReadingList({ ...item, content: article.content, contentSnippet: article.contentSnippet || item.contentSnippet })
+        return saveToReadingList({ ...item, content: article.content, contentSnippet: article.contentSnippet || item.contentSnippet }, id)
       }
-      return saveToReadingList(item)
+      return saveToReadingList(item, id)
     })),
   ])
 }
 
+async function fetchWithTimeout(url, options = {}) {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), SYNC_REQUEST_TIMEOUT_MS)
+  try {
+    return await fetch(url, { ...options, signal: controller.signal })
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      throw new Error(`用户状态请求超时(${Math.round(SYNC_REQUEST_TIMEOUT_MS / 1000)}s)`)
+    }
+    throw err
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
 async function pullRemote(id) {
-  const res = await fetch(`${SYNC_ENDPOINT}?syncid=${encodeURIComponent(id)}`)
+  const res = await fetchWithTimeout(`${SYNC_ENDPOINT}?syncid=${encodeURIComponent(id)}`)
   if (!res.ok) {
     throw new Error(`Pull failed: HTTP ${res.status}`)
   }
@@ -242,7 +267,7 @@ async function pullRemote(id) {
 }
 
 async function pushRemote(id, state) {
-  const res = await fetch(`${SYNC_ENDPOINT}?syncid=${encodeURIComponent(id)}`, {
+  const res = await fetchWithTimeout(`${SYNC_ENDPOINT}?syncid=${encodeURIComponent(id)}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(state),
@@ -254,13 +279,31 @@ async function pushRemote(id, state) {
   return res.json()
 }
 
+async function withTotalSyncTimeout(work) {
+  let timeoutId
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`用户状态更新超时(${Math.round(SYNC_TOTAL_TIMEOUT_MS / 1000)}s)`))
+    }, SYNC_TOTAL_TIMEOUT_MS)
+  })
+  try {
+    return await Promise.race([work(), timeout])
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
 // ============ 主入口 ============
 
 // 双向同步。返回 { readSet, readingList, merged } 供 UI 更新 state
 export async function syncNow(id, localState = {}) {
-  if (!id) throw new Error('Sync ID 未设置')
+  return withTotalSyncTimeout(() => syncNowInner(id, localState))
+}
 
-  const [remote, local] = await Promise.all([pullRemote(id), readLocal(localState)])
+async function syncNowInner(id, localState = {}) {
+  if (!id) throw new Error('用户 ID 未设置')
+
+  const [remote, local] = await Promise.all([pullRemote(id), readLocal(id, localState)])
   const merged = mergeStates(local, remote)
 
   // readingListAll 含墓碑,用于写入远端和本地 IDB(让删除状态传播)
@@ -274,7 +317,7 @@ export async function syncNow(id, localState = {}) {
 
   await Promise.all([
     pushRemote(id, forWire),
-    writeLocal({ ...merged, readingList: merged.readingListAll }),
+    writeLocal(id, { ...merged, readingList: merged.readingListAll }),
   ])
 
   return {

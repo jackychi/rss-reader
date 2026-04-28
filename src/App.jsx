@@ -8,9 +8,9 @@ import { defaultFeeds } from './data/defaultFeeds'
 import { useLocalStorage } from './hooks/useLocalStorage'
 import { useRSSFetcher } from './hooks/useRSSFetcher'
 import { useOnlineStatus } from './hooks/useOnlineStatus'
-import { saveArticles, getArticles, clearExpiredCache, saveToReadingList, removeFromReadingList, getReadingList, saveFeedMeta, getAllReadStatus, saveReadStatusBatch, pruneOrphanedArticles } from './utils/db'
+import { saveArticles, getArticles, clearExpiredCache, saveToReadingList, removeFromReadingList, getReadingList, saveFeedMeta, getAllReadStatus, saveReadStatusBatch, pruneOrphanedArticles, setActiveUserId, migrateLegacyUserState } from './utils/db'
 import { getArticleKey } from './utils/articleKey'
-import { getSyncId, setSyncId, clearSyncId, generateSyncId, normalizePositionMap, syncNow } from './utils/sync'
+import { ensureSyncId, getSyncId, setSyncId, generateSyncId, normalizePositionMap, syncNow } from './utils/sync'
 import { CATREADER_API_URL } from './utils/constants'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import Header from './components/Header'
@@ -35,6 +35,7 @@ const STORAGE_KEYS = {
 // 已迁移到 IndexedDB 的遗留 localStorage 键,启动时一次性清掉
 const LEGACY_ARTICLE_CACHE_KEY = 'rss-reader-article-cache'
 const LEGACY_READ_STATUS_KEY = 'rss-reader-read-status'
+const USER_STATE_RETRY_DELAY_MS = 10_000
 
 function toParagraphHtml(text) {
   const escapeHtml = (input) => input
@@ -127,6 +128,40 @@ function positionMapsEqual(a, b) {
   )
 }
 
+function userStorageKey(key, syncId) {
+  return `${key}:${syncId}`
+}
+
+function readUserStorage(key, syncId, fallback) {
+  if (!syncId) return fallback
+  try {
+    const scopedKey = userStorageKey(key, syncId)
+    const item = localStorage.getItem(scopedKey)
+    if (item) return JSON.parse(item)
+
+    // 迁移老版本全局阅读位置到当前自动用户 ID。只在新 user-scoped key 为空时读取。
+    const legacyMarker = `${key}:legacy-migrated`
+    if (localStorage.getItem(legacyMarker) === '1') return fallback
+    const legacy = localStorage.getItem(key)
+    if (!legacy) return fallback
+    localStorage.setItem(scopedKey, legacy)
+    localStorage.setItem(legacyMarker, '1')
+    return JSON.parse(legacy)
+  } catch (error) {
+    console.error(`Error reading localStorage key "${key}" for user "${syncId}":`, error)
+    return fallback
+  }
+}
+
+function writeUserStorage(key, syncId, value) {
+  if (!syncId) return
+  try {
+    localStorage.setItem(userStorageKey(key, syncId), JSON.stringify(value))
+  } catch (error) {
+    console.error(`Error setting localStorage key "${key}" for user "${syncId}":`, error)
+  }
+}
+
 function App() {
   // ============ 状态管理 ============
   // 订阅源 - 持久化
@@ -137,10 +172,11 @@ function App() {
   const [theme, setTheme] = useLocalStorage(STORAGE_KEYS.THEME, 'light')
   // 分类展开状态 - 持久化
   const [expandedCategories, setExpandedCategories] = useLocalStorage(STORAGE_KEYS.EXPANDED_CATS, {})
-  // 阅读位置 - 持久化
-  const [readPositions, setReadPositions] = useLocalStorage(STORAGE_KEYS.READ_POSITIONS, {})
-  // 音频播放位置 - 持久化
-  const [audioPositions, setAudioPositions] = useLocalStorage(STORAGE_KEYS.AUDIO_POSITIONS, {})
+  // 用户 ID。当前阶段用 syncid 作为用户标识;后续可替换为墨问用户系统。
+  const [syncId, setSyncIdState] = useState(() => ensureSyncId())
+  // 阅读位置/音频播放位置 - 按 syncid 隔离持久化
+  const [readPositions, setReadPositionsState] = useState(() => readUserStorage(STORAGE_KEYS.READ_POSITIONS, getSyncId(), {}))
+  const [audioPositions, setAudioPositionsState] = useState(() => readUserStorage(STORAGE_KEYS.AUDIO_POSITIONS, getSyncId(), {}))
   // 服务端统一生成的栏目介绍,按 feed URL 建索引。
   const [serverFeedIntros, setServerFeedIntros] = useState({})
 
@@ -175,16 +211,33 @@ function App() {
   const [feedIntroStatus, setFeedIntroStatus] = useState('idle') // idle | loading | ready | empty | error
   const [feedIntroError, setFeedIntroError] = useState(null)
 
-  // 跨设备同步状态
-  const [syncId, setSyncIdState] = useState(() => getSyncId())
+  // 用户状态自动保存/加载状态
   const [syncStatus, setSyncStatus] = useState('idle') // idle | syncing | ok | error
   const [syncError, setSyncError] = useState(null)
   const [lastSyncedAt, setLastSyncedAt] = useState(null)
   const syncPushTimerRef = useRef(null)
+  const syncRetryTimerRef = useRef(null)
   const syncInitRef = useRef(false) // 跳过 mount 时首次 auto-push(只响应真正变化)
   const syncInFlightRef = useRef(false) // 防止同一设备并发 doSync(上一次还没回来不起新的)
+  const initialSyncDoneRef = useRef(false)
 
-  // ============ 跨设备同步 ============
+  const setReadPositions = useCallback((value) => {
+    setReadPositionsState((prev) => {
+      const next = value instanceof Function ? value(prev) : value
+      writeUserStorage(STORAGE_KEYS.READ_POSITIONS, syncId, next)
+      return next
+    })
+  }, [syncId])
+
+  const setAudioPositions = useCallback((value) => {
+    setAudioPositionsState((prev) => {
+      const next = value instanceof Function ? value(prev) : value
+      writeUserStorage(STORAGE_KEYS.AUDIO_POSITIONS, syncId, next)
+      return next
+    })
+  }, [syncId])
+
+  // ============ 用户状态自动保存/加载 ============
   // applySyncResult:把 syncNow 返回的合并状态应用到 React state
   // 关键点:compare-before-update——如果合并结果与当前 state 内容一致,不触发 setState,
   // 从而避免"auto-push useEffect 再次触发 syncNow"的死循环
@@ -235,7 +288,7 @@ function App() {
   }, [setAudioPositions, setReadPositions])
 
   const doSync = useCallback(async () => {
-    const id = getSyncId()
+    const id = syncId || getSyncId()
     if (!id) return
     if (syncInFlightRef.current) return // 已有同步在途,跳过;下次状态变化会重新触发
     syncInFlightRef.current = true
@@ -246,6 +299,10 @@ function App() {
       applySyncResult(result)
       setSyncStatus('ok')
       setLastSyncedAt(Date.now())
+      if (syncRetryTimerRef.current) {
+        clearTimeout(syncRetryTimerRef.current)
+        syncRetryTimerRef.current = null
+      }
     } catch (err) {
       console.error('[App] sync failed:', err)
       setSyncStatus('error')
@@ -253,44 +310,48 @@ function App() {
     } finally {
       syncInFlightRef.current = false
     }
-  }, [applySyncResult, audioPositions, readPositions])
+  }, [applySyncResult, audioPositions, readPositions, syncId])
 
-  const handleEnableSync = useCallback(() => {
+  const handleCreateUserId = useCallback(() => {
     const id = generateSyncId()
     setSyncId(id)
     setSyncIdState(id)
-    // syncId 变化会触发"初始同步" useEffect,不用在这里显式调 doSync
   }, [])
 
-  const handlePairSync = useCallback((id) => {
+  const handleSetUserId = useCallback((id) => {
     try {
       const normalized = setSyncId(id)
       setSyncIdState(normalized)
-      // 显式触发一次同步,不依赖"syncId 变化驱动 useEffect"的间接路径
-      // 如果 normalized === 旧的 syncId(用户输入了相同 ID),React 不会 re-render,
-      // useEffect 也不会 fire,那间接路径会失效。显式调用确保"点保存 = 立即同步"
-      doSync()
     } catch (err) {
-      setSyncError(err?.message || '配对失败')
+      setSyncError(err?.message || '用户 ID 不合法')
       setSyncStatus('error')
     }
-  }, [doSync])
+  }, [])
 
-  const handleSyncNow = useCallback(() => {
-    doSync()
-  }, [doSync])
-
-  const handleDisableSync = useCallback(() => {
-    clearSyncId()
-    setSyncIdState(null)
-    setSyncStatus('idle')
-    setSyncError(null)
+  useEffect(() => {
+    if (!syncId) return
+    setActiveUserId(syncId)
+    setReadPositionsState(readUserStorage(STORAGE_KEYS.READ_POSITIONS, syncId, {}))
+    setAudioPositionsState(readUserStorage(STORAGE_KEYS.AUDIO_POSITIONS, syncId, {}))
+    setReadSet(new Set())
+    setUnreadByFeed(new Map())
+    setReadingList([])
+    setIdbReady(false)
+    setDataReady(false)
     setLastSyncedAt(null)
+    setSyncError(null)
+    setSyncStatus('idle')
+    syncInitRef.current = false
+    initialSyncDoneRef.current = false
     if (syncPushTimerRef.current) {
       clearTimeout(syncPushTimerRef.current)
       syncPushTimerRef.current = null
     }
-  }, [])
+    if (syncRetryTimerRef.current) {
+      clearTimeout(syncRetryTimerRef.current)
+      syncRetryTimerRef.current = null
+    }
+  }, [syncId])
 
   // 切换阅读列表视图
   const handleToggleReadingList = useCallback(() => {
@@ -495,8 +556,10 @@ function App() {
   useEffect(() => {
     let cancelled = false
     async function init() {
+      if (!syncId) return
       // 1. 清理已经迁移的 articleCache 键(无需迁移,纯缓存)
       try { localStorage.removeItem(LEGACY_ARTICLE_CACHE_KEY) } catch { /* 忽略 */ }
+      await migrateLegacyUserState(syncId)
 
       // 2. 一次性迁移 readStatus: localStorage -> IDB
       try {
@@ -505,7 +568,7 @@ function App() {
           const parsed = JSON.parse(legacy)
           const keys = Object.keys(parsed).filter(k => parsed[k] === true)
           if (keys.length > 0) {
-            await saveReadStatusBatch(keys)
+            await saveReadStatusBatch(keys, syncId)
             console.log('[App] Migrated', keys.length, 'read-status entries from localStorage to IDB')
           }
           localStorage.removeItem(LEGACY_READ_STATUS_KEY)
@@ -517,7 +580,7 @@ function App() {
 
       // 3. 从 IDB 加载已读集合,并根据缓存文章派生每个 feed 的未读集合
       try {
-        const readMap = await getAllReadStatus()
+        const readMap = await getAllReadStatus(syncId)
         if (cancelled) return
         const read = new Set(Object.keys(readMap))
 
@@ -551,7 +614,7 @@ function App() {
     }
     init()
     return () => { cancelled = true }
-  }, [])
+  }, [syncId])
 
   // ============ 初始化 IndexedDB 缓存 ============
   useEffect(() => {
@@ -575,12 +638,12 @@ function App() {
   // ============ 加载阅读列表 ============
   const loadReadingList = useCallback(async () => {
     try {
-      const list = await getReadingList()
+      const list = await getReadingList(syncId)
       setReadingList(list)
     } catch (error) {
       console.error('[App] Failed to load reading list:', error)
     }
-  }, [])
+  }, [syncId])
 
   useEffect(() => {
     loadReadingList()
@@ -591,7 +654,6 @@ function App() {
   // ============ 跨设备同步 - 初始同步 ============
   // syncId 存在且在线时触发一次 syncNow。syncId 变化(用户启用/配对)也会重跑。
   // IDB 就绪后先放行本地已读/未读显示;云端同步在后台合并并修正状态。
-  const initialSyncDoneRef = useRef(false)
   useEffect(() => {
     if (!idbReady) return
 
@@ -608,7 +670,26 @@ function App() {
     doInitialSync()
   }, [syncId, isOnline, idbReady, doSync])
 
-  // ============ 跨设备同步 - 自动推送 ============
+  // ============ 用户状态自动重试 ============
+  // 后端启动较慢、临时断网或用户状态库短暂不可用时,失败后自动后台重试。
+  useEffect(() => {
+    if (syncStatus !== 'error' || !syncId || !isOnline) return
+    if (syncRetryTimerRef.current) return
+
+    syncRetryTimerRef.current = setTimeout(() => {
+      syncRetryTimerRef.current = null
+      doSync()
+    }, USER_STATE_RETRY_DELAY_MS)
+
+    return () => {
+      if (syncRetryTimerRef.current) {
+        clearTimeout(syncRetryTimerRef.current)
+        syncRetryTimerRef.current = null
+      }
+    }
+  }, [syncStatus, syncId, isOnline, doSync])
+
+  // ============ 用户状态自动写回 ============
   // readSet / readingList / 阅读进度变化时 debounce 3s 调 syncNow。
   // syncInitRef 守卫 mount 时第一次变化(init useEffect 把 readSet 从空变有会触发)。
   // applySyncResult 里有 compare-before-update,sync 结果若与当前 state 相同不触发
@@ -726,10 +807,10 @@ function App() {
     })
 
     // IDB 写入 fire-and-forget,UI 不等
-    saveReadStatusBatch(allKeys).catch(err =>
+    saveReadStatusBatch(allKeys, syncId).catch(err =>
       console.error('[App] saveReadStatusBatch failed:', err)
     )
-  }, [])
+  }, [syncId])
 
   // ============ 辅助函数 ============
   const formatDate = useCallback((dateStr) => {
@@ -1006,10 +1087,10 @@ function App() {
       return next
     })
 
-    saveReadStatusBatch(allKeys).catch(err =>
+    saveReadStatusBatch(allKeys, syncId).catch(err =>
       console.error('[App] mark all as read IDB write failed:', err)
     )
-  }, [selectedFeed, unreadByFeed, feeds])
+  }, [selectedFeed, unreadByFeed, feeds, syncId])
 
   // 切换文章书签状态
   const handleToggleArticleBookmark = useCallback(async () => {
@@ -1019,13 +1100,13 @@ function App() {
     const isCurrentlyInList = readingList.some(a => getArticleKey(a) === articleKey)
 
     if (isCurrentlyInList) {
-      await removeFromReadingList(articleKey)
+      await removeFromReadingList(articleKey, syncId)
       setReadingList(prev => prev.filter(a => getArticleKey(a) !== articleKey))
     } else {
-      await saveToReadingList(selectedArticle)
+      await saveToReadingList(selectedArticle, syncId)
       setReadingList(prev => [selectedArticle, ...prev])
     }
-  }, [selectedArticle, readingList])
+  }, [selectedArticle, readingList, syncId])
 
   // 检查文章是否在阅读列表中
   const isArticleInReadingList = useCallback(() => {
@@ -1036,9 +1117,9 @@ function App() {
 
   // 从阅读列表移除文章
   const handleRemoveFromReadingList = useCallback(async (articleKey) => {
-    await removeFromReadingList(articleKey)
+    await removeFromReadingList(articleKey, syncId)
     setReadingList(prev => prev.filter(a => getArticleKey(a) !== articleKey))
-  }, [])
+  }, [syncId])
 
   const hydrateSelectedArticle = useCallback((article) => {
     if ((!article.content || !article.enclosure?.url) && article.id) {
@@ -1303,10 +1384,8 @@ function App() {
         syncStatus={syncStatus}
         syncError={syncError}
         lastSyncedAt={lastSyncedAt}
-        onEnableSync={handleEnableSync}
-        onPairSync={handlePairSync}
-        onSync={handleSyncNow}
-        onDisableSync={handleDisableSync}
+        onCreateUserId={handleCreateUserId}
+        onSetUserId={handleSetUserId}
         isAskCatOpen={isAskCatOpen}
         onToggleAskCat={() => setIsAskCatOpen(v => !v)}
         onShowShortcuts={() => setShowShortcutsOverlay(true)}

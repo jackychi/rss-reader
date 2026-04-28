@@ -8,7 +8,22 @@
  */
 
 const DB_NAME = 'CatReaderDB'
-const DB_VERSION = 3
+const DB_VERSION = 4
+const DEFAULT_USER_ID = 'default'
+
+let activeUserId = DEFAULT_USER_ID
+
+export function setActiveUserId(syncId) {
+  activeUserId = syncId || DEFAULT_USER_ID
+}
+
+function userId(syncId) {
+  return syncId || activeUserId || DEFAULT_USER_ID
+}
+
+function userRecordId(syncId, itemId) {
+  return `${userId(syncId)}:${itemId}`
+}
 
 // 打开数据库
 export function openDB() {
@@ -56,7 +71,95 @@ export function openDB() {
       if (!db.objectStoreNames.contains('feedMeta')) {
         db.createObjectStore('feedMeta', { keyPath: 'feedUrl' })
       }
+
+      // v4: 用户状态按 syncid 隔离。旧 readStatus / readingList store 保留,
+      // 用于老版本数据迁移和回退,新读写走下面两个 user-scoped store。
+      if (!db.objectStoreNames.contains('readStatusByUser')) {
+        const readStatusByUser = db.createObjectStore('readStatusByUser', { keyPath: 'id' })
+        readStatusByUser.createIndex('syncId', 'syncId', { unique: false })
+      }
+
+      if (!db.objectStoreNames.contains('readingListByUser')) {
+        const readingListByUser = db.createObjectStore('readingListByUser', { keyPath: 'cacheId' })
+        readingListByUser.createIndex('syncId', 'syncId', { unique: false })
+      }
     }
+  })
+}
+
+export async function migrateLegacyUserState(syncId) {
+  const scopedUserId = userId(syncId)
+  const legacyMarker = 'rss-reader-user-state-legacy-migrated'
+  const marker = `rss-reader-user-state-migrated:${scopedUserId}`
+  try {
+    if (localStorage.getItem(legacyMarker) === '1') return true
+    if (localStorage.getItem(marker) === '1') return true
+  } catch { /* ignore */ }
+
+  try {
+    const db = await openDB()
+    const readTx = db.transaction(['readStatus', 'readingList', 'readStatusByUser', 'readingListByUser'], 'readonly')
+    const readIndex = readTx.objectStore('readStatusByUser').index('syncId')
+    const listIndex = readTx.objectStore('readingListByUser').index('syncId')
+
+    const [existingRead, existingList, legacyRead, legacyList] = await Promise.all([
+      requestAsPromise(readIndex.getAll(IDBKeyRange.only(scopedUserId))),
+      requestAsPromise(listIndex.getAll(IDBKeyRange.only(scopedUserId))),
+      requestAsPromise(readTx.objectStore('readStatus').getAll()),
+      requestAsPromise(readTx.objectStore('readingList').getAll()),
+    ])
+
+    const tx = db.transaction(['readStatusByUser', 'readingListByUser'], 'readwrite')
+    const readStore = tx.objectStore('readStatusByUser')
+    const listStore = tx.objectStore('readingListByUser')
+
+    if ((existingRead?.length || 0) === 0) {
+      for (const rec of legacyRead || []) {
+        if (!rec?.articleKey) continue
+        readStore.put({
+          id: userRecordId(scopedUserId, rec.articleKey),
+          syncId: scopedUserId,
+          articleKey: rec.articleKey,
+          status: rec.status || 'read',
+          readAt: rec.readAt ?? Date.now(),
+          updatedAt: rec.updatedAt ?? rec.readAt ?? Date.now(),
+        })
+      }
+    }
+
+    if ((existingList?.length || 0) === 0) {
+      for (const item of legacyList || []) {
+        const id = item?.id
+        if (!id) continue
+        listStore.put({
+          ...item,
+          cacheId: userRecordId(scopedUserId, id),
+          syncId: scopedUserId,
+          id,
+        })
+      }
+    }
+
+    return new Promise((resolve, reject) => {
+      tx.oncomplete = () => {
+        try {
+          localStorage.setItem(marker, '1')
+          localStorage.setItem(legacyMarker, '1')
+        } catch { /* ignore */ }
+        resolve(true)
+      }
+      tx.onerror = () => reject(tx.error)
+    })
+  } catch (error) {
+    console.error('[DB] Failed to migrate legacy user state:', error)
+    return false
+  }
+}
+
+function requestAsPromise(request) {
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error)
   })
 }
 
@@ -186,15 +289,21 @@ export async function getFeeds() {
 }
 
 // 保存已读状态
-export async function saveReadStatus(articleKey) {
+export async function saveReadStatus(articleKey, syncId = null) {
   try {
     const db = await openDB()
-    const tx = db.transaction('readStatus', 'readwrite')
-    const store = tx.objectStore('readStatus')
+    const tx = db.transaction('readStatusByUser', 'readwrite')
+    const store = tx.objectStore('readStatusByUser')
+    const scopedUserId = userId(syncId)
+    const now = Date.now()
 
     store.put({
+      id: userRecordId(scopedUserId, articleKey),
+      syncId: scopedUserId,
       articleKey,
-      readAt: Date.now(),
+      status: 'read',
+      readAt: now,
+      updatedAt: now,
     })
 
     return new Promise((resolve, reject) => {
@@ -208,16 +317,24 @@ export async function saveReadStatus(articleKey) {
 }
 
 // 批量保存已读状态(mark all as read / localStorage 迁移场景,单条事务)
-export async function saveReadStatusBatch(articleKeys) {
+export async function saveReadStatusBatch(articleKeys, syncId = null) {
   if (!Array.isArray(articleKeys) || articleKeys.length === 0) return true
   try {
     const db = await openDB()
-    const tx = db.transaction('readStatus', 'readwrite')
-    const store = tx.objectStore('readStatus')
+    const tx = db.transaction('readStatusByUser', 'readwrite')
+    const store = tx.objectStore('readStatusByUser')
+    const scopedUserId = userId(syncId)
     const readAt = Date.now()
 
     articleKeys.forEach((articleKey) => {
-      store.put({ articleKey, readAt })
+      store.put({
+        id: userRecordId(scopedUserId, articleKey),
+        syncId: scopedUserId,
+        articleKey,
+        status: 'read',
+        readAt,
+        updatedAt: readAt,
+      })
     })
 
     return new Promise((resolve, reject) => {
@@ -232,16 +349,25 @@ export async function saveReadStatusBatch(articleKeys) {
 
 // 批量保存已读记录(保留传入的 readAt,用于跨设备同步合并)
 // 跟 saveReadStatusBatch 的区别:那个统一使用 Date.now(),这个保留原始时间戳
-export async function saveReadStatusRecordsBatch(records) {
+export async function saveReadStatusRecordsBatch(records, syncId = null) {
   if (!Array.isArray(records) || records.length === 0) return true
   try {
     const db = await openDB()
-    const tx = db.transaction('readStatus', 'readwrite')
-    const store = tx.objectStore('readStatus')
+    const tx = db.transaction('readStatusByUser', 'readwrite')
+    const store = tx.objectStore('readStatusByUser')
+    const scopedUserId = userId(syncId)
 
     records.forEach((rec) => {
       if (!rec?.articleKey) return
-      store.put({ articleKey: rec.articleKey, readAt: rec.readAt ?? Date.now() })
+      const readAt = rec.readAt ?? Date.now()
+      store.put({
+        id: userRecordId(scopedUserId, rec.articleKey),
+        syncId: scopedUserId,
+        articleKey: rec.articleKey,
+        status: rec.status || 'read',
+        readAt,
+        updatedAt: rec.updatedAt ?? readAt,
+      })
     })
 
     return new Promise((resolve, reject) => {
@@ -274,14 +400,16 @@ export async function getArticleById(id) {
 
 // 获取所有已读记录(含 readAt 时间戳,供同步模块使用)
 // 跟 getAllReadStatus() 的区别:那个返回 {articleKey: true} map,这个返回原始记录数组
-export async function getAllReadStatusRecords() {
+export async function getAllReadStatusRecords(syncId = null) {
   try {
     const db = await openDB()
-    const tx = db.transaction('readStatus', 'readonly')
-    const store = tx.objectStore('readStatus')
+    const tx = db.transaction('readStatusByUser', 'readonly')
+    const store = tx.objectStore('readStatusByUser')
+    const index = store.index('syncId')
+    const scopedUserId = userId(syncId)
 
     return new Promise((resolve, reject) => {
-      const request = store.getAll()
+      const request = index.getAll(IDBKeyRange.only(scopedUserId))
       request.onsuccess = () => resolve(request.result || [])
       request.onerror = () => reject(request.error)
     })
@@ -292,14 +420,14 @@ export async function getAllReadStatusRecords() {
 }
 
 // 获取已读状态
-export async function getReadStatus(articleKey) {
+export async function getReadStatus(articleKey, syncId = null) {
   try {
     const db = await openDB()
-    const tx = db.transaction('readStatus', 'readonly')
-    const store = tx.objectStore('readStatus')
+    const tx = db.transaction('readStatusByUser', 'readonly')
+    const store = tx.objectStore('readStatusByUser')
 
     return new Promise((resolve, reject) => {
-      const request = store.get(articleKey)
+      const request = store.get(userRecordId(syncId, articleKey))
       request.onsuccess = () => resolve(request.result || null)
       request.onerror = () => reject(request.error)
     })
@@ -310,18 +438,20 @@ export async function getReadStatus(articleKey) {
 }
 
 // 获取所有已读状态
-export async function getAllReadStatus() {
+export async function getAllReadStatus(syncId = null) {
   try {
     const db = await openDB()
-    const tx = db.transaction('readStatus', 'readonly')
-    const store = tx.objectStore('readStatus')
+    const tx = db.transaction('readStatusByUser', 'readonly')
+    const store = tx.objectStore('readStatusByUser')
+    const index = store.index('syncId')
+    const scopedUserId = userId(syncId)
 
     return new Promise((resolve, reject) => {
-      const request = store.getAll()
+      const request = index.getAll(IDBKeyRange.only(scopedUserId))
       request.onsuccess = () => {
         const statusMap = {}
         request.result?.forEach((item) => {
-          statusMap[item.articleKey] = true
+          if ((item.status || 'read') === 'read') statusMap[item.articleKey] = true
         })
         resolve(statusMap)
       }
@@ -334,16 +464,19 @@ export async function getAllReadStatus() {
 }
 
 // 保存文章到阅读列表
-export async function saveToReadingList(article) {
+export async function saveToReadingList(article, syncId = null) {
   try {
     const db = await openDB()
-    const tx = db.transaction('readingList', 'readwrite')
-    const store = tx.objectStore('readingList')
+    const tx = db.transaction('readingListByUser', 'readwrite')
+    const store = tx.objectStore('readingListByUser')
+    const scopedUserId = userId(syncId)
 
     const id = article.id ?? `${article.feedUrl}-${article.guid || article.link}`
     store.put({
-      id,
       ...article,
+      cacheId: userRecordId(scopedUserId, id),
+      syncId: scopedUserId,
+      id,
       // 同步回写要保留已合并过的 savedAt,否则每次 sync 都会把收藏时间刷新成“现在”
       savedAt: article.savedAt ?? Date.now(),
     })
@@ -359,14 +492,16 @@ export async function saveToReadingList(article) {
 }
 
 // 从阅读列表移除文章 — 写墓碑而非真删,防止跨设备同步 UNION merge 把已删条目合回来
-export async function removeFromReadingList(articleId) {
+export async function removeFromReadingList(articleId, syncId = null) {
   try {
     const db = await openDB()
-    const tx = db.transaction('readingList', 'readwrite')
-    const store = tx.objectStore('readingList')
+    const tx = db.transaction('readingListByUser', 'readwrite')
+    const store = tx.objectStore('readingListByUser')
+    const scopedUserId = userId(syncId)
+    const cacheId = userRecordId(scopedUserId, articleId)
 
     const existing = await new Promise((resolve, reject) => {
-      const req = store.get(articleId)
+      const req = store.get(cacheId)
       req.onsuccess = () => resolve(req.result)
       req.onerror = () => reject(req.error)
     })
@@ -374,7 +509,7 @@ export async function removeFromReadingList(articleId) {
     if (existing) {
       store.put({ ...existing, removedAt: Date.now() })
     } else {
-      store.put({ id: articleId, removedAt: Date.now() })
+      store.put({ cacheId, syncId: scopedUserId, id: articleId, removedAt: Date.now() })
     }
 
     return new Promise((resolve, reject) => {
@@ -388,14 +523,16 @@ export async function removeFromReadingList(articleId) {
 }
 
 // 获取阅读列表所有文章
-export async function getReadingList() {
+export async function getReadingList(syncId = null) {
   try {
     const db = await openDB()
-    const tx = db.transaction('readingList', 'readonly')
-    const store = tx.objectStore('readingList')
+    const tx = db.transaction('readingListByUser', 'readonly')
+    const store = tx.objectStore('readingListByUser')
+    const index = store.index('syncId')
+    const scopedUserId = userId(syncId)
 
     return new Promise((resolve, reject) => {
-      const request = store.getAll()
+      const request = index.getAll(IDBKeyRange.only(scopedUserId))
 
       request.onsuccess = () => {
         const articles = (request.result || [])
@@ -414,14 +551,16 @@ export async function getReadingList() {
 }
 
 // 获取阅读列表所有条目(含墓碑),供同步模块使用
-export async function getReadingListWithTombstones() {
+export async function getReadingListWithTombstones(syncId = null) {
   try {
     const db = await openDB()
-    const tx = db.transaction('readingList', 'readonly')
-    const store = tx.objectStore('readingList')
+    const tx = db.transaction('readingListByUser', 'readonly')
+    const store = tx.objectStore('readingListByUser')
+    const index = store.index('syncId')
+    const scopedUserId = userId(syncId)
 
     return new Promise((resolve, reject) => {
-      const request = store.getAll()
+      const request = index.getAll(IDBKeyRange.only(scopedUserId))
       request.onsuccess = () => resolve(request.result || [])
       request.onerror = () => reject(request.error)
     })
@@ -432,14 +571,14 @@ export async function getReadingListWithTombstones() {
 }
 
 // 按 ID 获取阅读列表中的单条记录(含 content),供同步模块保留本地 content
-export async function getReadingListItemById(articleId) {
+export async function getReadingListItemById(articleId, syncId = null) {
   try {
     const db = await openDB()
-    const tx = db.transaction('readingList', 'readonly')
-    const store = tx.objectStore('readingList')
+    const tx = db.transaction('readingListByUser', 'readonly')
+    const store = tx.objectStore('readingListByUser')
 
     return new Promise((resolve, reject) => {
-      const request = store.get(articleId)
+      const request = store.get(userRecordId(syncId, articleId))
       request.onsuccess = () => resolve(request.result || null)
       request.onerror = () => reject(request.error)
     })
@@ -450,14 +589,14 @@ export async function getReadingListItemById(articleId) {
 }
 
 // 检查文章是否在阅读列表中
-export async function isInReadingList(articleId) {
+export async function isInReadingList(articleId, syncId = null) {
   try {
     const db = await openDB()
-    const tx = db.transaction('readingList', 'readonly')
-    const store = tx.objectStore('readingList')
+    const tx = db.transaction('readingListByUser', 'readonly')
+    const store = tx.objectStore('readingListByUser')
 
     return new Promise((resolve, reject) => {
-      const request = store.get(articleId)
+      const request = store.get(userRecordId(syncId, articleId))
       request.onsuccess = () => resolve(!!request.result && !request.result.removedAt)
       request.onerror = () => reject(request.error)
     })
@@ -609,6 +748,8 @@ export async function getFeedMeta(feedUrl) {
 
 export default {
   openDB,
+  setActiveUserId,
+  migrateLegacyUserState,
   saveArticles,
   getArticles,
   getArticleById,

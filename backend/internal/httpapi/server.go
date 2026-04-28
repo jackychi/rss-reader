@@ -2,10 +2,13 @@ package httpapi
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"strconv"
@@ -41,6 +44,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/user-state", s.handlePostUserState)
 	mux.HandleFunc("POST /api/admin/refresh", s.handleRefresh)
 	mux.HandleFunc("POST /api/admin/feed-intros/refresh", s.handleFeedIntroRefresh)
+	mux.HandleFunc("GET /api/admin/llm-config", s.handleGetLLMConfig)
 	mux.HandleFunc("POST /api/admin/llm-config", s.handleLLMConfig)
 	return withCORS(mux)
 }
@@ -132,11 +136,21 @@ func (s *Server) handleGetUserState(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	start := time.Now()
 	state, err := s.userState.GetState(r.Context(), syncID)
 	if err != nil {
+		log.Printf("user-state GET failed sync_id_hash=%s duration=%s error=%v", shortSyncIDHash(syncID), time.Since(start), err)
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	log.Printf("user-state GET sync_id_hash=%s duration=%s read_status=%d reading_list=%d read_positions=%d audio_positions=%d",
+		shortSyncIDHash(syncID),
+		time.Since(start),
+		len(state.ReadStatus),
+		len(state.ReadingList),
+		len(state.ReadPositions),
+		len(state.AudioPositions),
+	)
 	writeJSON(w, http.StatusOK, state)
 }
 
@@ -157,15 +171,36 @@ func (s *Server) handlePostUserState(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	start := time.Now()
 	if err := s.userState.SaveState(r.Context(), syncID, state); err != nil {
+		log.Printf("user-state POST failed sync_id_hash=%s duration=%s read_status=%d reading_list=%d read_positions=%d audio_positions=%d error=%v",
+			shortSyncIDHash(syncID),
+			time.Since(start),
+			len(state.ReadStatus),
+			len(state.ReadingList),
+			len(state.ReadPositions),
+			len(state.AudioPositions),
+			err,
+		)
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
 	merged, err := s.userState.GetState(r.Context(), syncID)
 	if err != nil {
+		log.Printf("user-state POST reload failed sync_id_hash=%s duration=%s error=%v", shortSyncIDHash(syncID), time.Since(start), err)
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	log.Printf("user-state POST sync_id_hash=%s duration=%s request_read_status=%d request_reading_list=%d request_read_positions=%d request_audio_positions=%d merged_read_status=%d merged_reading_list=%d",
+		shortSyncIDHash(syncID),
+		time.Since(start),
+		len(state.ReadStatus),
+		len(state.ReadingList),
+		len(state.ReadPositions),
+		len(state.AudioPositions),
+		len(merged.ReadStatus),
+		len(merged.ReadingList),
+	)
 	writeJSON(w, http.StatusOK, merged)
 }
 
@@ -251,6 +286,19 @@ type llmConfigRequest struct {
 	APIKey      string `json:"apiKey"`
 	Model       string `json:"model"`
 	ContextSize int    `json:"contextSize"`
+}
+
+func (s *Server) handleGetLLMConfig(w http.ResponseWriter, r *http.Request) {
+	if !isLoopbackRequest(r) {
+		writeError(w, http.StatusForbidden, errors.New("admin config can only be read from localhost"))
+		return
+	}
+	cfg, err := readLocalLLMConfig()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, cfg)
 }
 
 func (s *Server) handleLLMConfig(w http.ResponseWriter, r *http.Request) {
@@ -346,6 +394,11 @@ func syncIDFromRequest(r *http.Request) (string, error) {
 		return "", errors.New("syncid can only contain letters, numbers, or hyphen")
 	}
 	return id, nil
+}
+
+func shortSyncIDHash(syncID string) string {
+	sum := sha256.Sum256([]byte(syncID))
+	return hex.EncodeToString(sum[:])[:12]
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

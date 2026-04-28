@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bufio"
 	"os"
 	"path/filepath"
 	"sort"
@@ -36,6 +37,103 @@ func localEnvFilePaths() (string, string) {
 		return filepath.Join(cwd, ".env.local"), filepath.Join(cwd, "backend", ".env.local")
 	}
 	return filepath.Join(filepath.Dir(cwd), ".env.local"), filepath.Join(cwd, ".env.local")
+}
+
+func readLocalLLMConfig() (llmConfigRequest, error) {
+	rootEnv, backendEnv := localEnvFilePaths()
+	values := map[string]string{}
+	for _, path := range []string{rootEnv, backendEnv} {
+		fileValues, err := readEnvFileValues(path)
+		if err != nil {
+			return llmConfigRequest{}, err
+		}
+		for key, value := range fileValues {
+			if values[key] == "" {
+				values[key] = value
+			}
+		}
+	}
+
+	contextSize := 30
+	if raw := firstNonEmpty(values["VITE_ASKCAT_CONTEXT_SIZE"], os.Getenv("VITE_ASKCAT_CONTEXT_SIZE")); raw != "" {
+		contextSize, _ = strconv.Atoi(raw)
+	}
+
+	return llmConfigRequest{
+		BaseURL: strings.TrimRight(firstNonEmpty(
+			values["VITE_ASKCAT_BASE_URL"],
+			values["CATREADER_LLM_BASE_URL"],
+			os.Getenv("VITE_ASKCAT_BASE_URL"),
+			os.Getenv("CATREADER_LLM_BASE_URL"),
+		), "/"),
+		APIKey: firstNonEmpty(
+			values["VITE_ASKCAT_API_KEY"],
+			values["CATREADER_LLM_API_KEY"],
+			os.Getenv("VITE_ASKCAT_API_KEY"),
+			os.Getenv("CATREADER_LLM_API_KEY"),
+		),
+		Model: firstNonEmpty(
+			values["VITE_ASKCAT_MODEL"],
+			values["CATREADER_LLM_MODEL"],
+			os.Getenv("VITE_ASKCAT_MODEL"),
+			os.Getenv("CATREADER_LLM_MODEL"),
+		),
+		ContextSize: normalizeContextSize(contextSize),
+	}, nil
+}
+
+func readEnvFileValues(path string) (map[string]string, error) {
+	values := map[string]string{}
+	file, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return values, nil
+		}
+		return values, err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		values[key] = unquoteEnvValue(strings.TrimSpace(value))
+	}
+	return values, scanner.Err()
+}
+
+func unquoteEnvValue(value string) string {
+	if len(value) < 2 {
+		return value
+	}
+	quote := value[0]
+	if (quote != '"' && quote != '\'') || value[len(value)-1] != quote {
+		return value
+	}
+	if unquoted, err := strconv.Unquote(value); err == nil {
+		return unquoted
+	}
+	return value[1 : len(value)-1]
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func updateEnvFile(path string, updates map[string]string) error {

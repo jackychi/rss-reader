@@ -4,7 +4,7 @@ import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import {
   getLLMConfig,
-  saveLLMConfig,
+  fetchLLMConfig,
   isConfigValid,
   buildContextArticles,
   buildMessages,
@@ -103,8 +103,8 @@ export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticl
   const [messages, setMessages] = useState([]) // {role: 'user'|'assistant', content, isError?}
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [settingsSaveStatus, setSettingsSaveStatus] = useState('idle')
-  const [settingsSaveError, setSettingsSaveError] = useState('')
+  const [configLoadStatus, setConfigLoadStatus] = useState('idle')
+  const [configLoadError, setConfigLoadError] = useState('')
   const [contextByIdRef] = useState(() => ({ current: new Map() }))
   const [contextByLinkRef] = useState(() => ({ current: new Map() }))
   const [drawerWidth, setDrawerWidth] = useState(() => getStoredDrawerWidth())
@@ -155,6 +155,33 @@ export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticl
     if (showSettings) setDraft(config)
   }, [showSettings, config])
 
+  const loadConfigFromBackend = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) {
+      setConfigLoadStatus('loading')
+      setConfigLoadError('')
+    }
+    try {
+      const nextConfig = await fetchLLMConfig(CATREADER_API_URL)
+      setConfig(nextConfig)
+      setDraft(nextConfig)
+      setConfigLoadStatus('loaded')
+      if (isConfigValid(nextConfig)) {
+        setShowSettings(false)
+      }
+      return nextConfig
+    } catch (err) {
+      setConfigLoadStatus('error')
+      setConfigLoadError(err?.message || '读取配置失败')
+      return null
+    }
+  }, [])
+
+  useEffect(() => {
+    if (isOpen) {
+      loadConfigFromBackend({ silent: configValid })
+    }
+  }, [isOpen, configValid, loadConfigFromBackend])
+
   // 抽屉每次"从关 → 开"时,按配置状态决定初始视图
   //   - 未配置 LLM → 自动进 Settings
   //   - 已配置 → 一定重置成 Chat 视图(避免上次遗留的 Settings 状态污染)
@@ -191,33 +218,8 @@ export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticl
     }
   }, [isOpen, showSettings])
 
-  const handleSaveSettings = async () => {
-    const clean = {
-      baseUrl: (draft.baseUrl || '').trim().replace(/\/+$/, ''),
-      apiKey: (draft.apiKey || '').trim(),
-      model: (draft.model || '').trim(),
-      contextSize: Math.max(5, Math.min(200, Number(draft.contextSize) || 30)),
-    }
-    setSettingsSaveStatus('saving')
-    setSettingsSaveError('')
-    try {
-      const res = await fetch(`${CATREADER_API_URL}/api/admin/llm-config`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(clean),
-      })
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        throw new Error(data.error || `HTTP ${res.status}`)
-      }
-      const saved = saveLLMConfig(clean)
-      setConfig(saved)
-      setSettingsSaveStatus('saved')
-      setShowSettings(false)
-    } catch (err) {
-      setSettingsSaveStatus('error')
-      setSettingsSaveError(err?.message || '保存配置失败')
-    }
+  const handleReloadSettings = () => {
+    loadConfigFromBackend()
   }
 
   // 核心:给定 question + 显式 history → 调 LLM → 把 assistant 回复 append 到 messages
@@ -419,17 +421,16 @@ export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticl
       {showSettings ? (
         <SettingsPanel
           draft={draft}
-          onChange={setDraft}
-          onSave={handleSaveSettings}
-          onCancel={() => { setDraft(config); setSettingsSaveError(''); setSettingsSaveStatus('idle'); setShowSettings(false) }}
-          saveStatus={settingsSaveStatus}
-          saveError={settingsSaveError}
+          onReload={handleReloadSettings}
+          onClose={() => { setDraft(config); setConfigLoadError(''); setConfigLoadStatus('idle'); setShowSettings(false) }}
+          loadStatus={configLoadStatus}
+          loadError={configLoadError}
         />
       ) : (
         <>
           {!configValid && (
             <div style={{ padding: '12px', backgroundColor: 'var(--bg-secondary)', fontSize: '12px', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-color)' }}>
-              ⚠️ 还没配置 LLM。点右上角 <Settings size={12} style={{ display: 'inline', verticalAlign: 'middle' }} /> 填入 API 信息再开始问。
+              ⚠️ 还没读取到 LLM 配置。请确认本机 .env.local 已配置 Base URL / API Key / Model。
             </div>
           )}
 
@@ -646,13 +647,22 @@ function MessageBubble({ message, articleLinks, index, onRetry, isLoading }) {
   )
 }
 
-function SettingsPanel({ draft, onChange, onSave, onCancel, saveStatus, saveError }) {
-  const update = (field) => (e) => onChange({ ...draft, [field]: e.target.value })
-  const saving = saveStatus === 'saving'
+function SettingsPanel({ draft, onReload, onClose, loadStatus, loadError }) {
+  const loading = loadStatus === 'loading'
+  const fieldStyle = {
+    padding: '6px 8px',
+    border: '1px solid var(--border-color)',
+    borderRadius: '4px',
+    backgroundColor: 'var(--bg-secondary)',
+    color: 'var(--text-primary)',
+    fontSize: '12px',
+    fontFamily: 'ui-monospace, monospace',
+    outline: 'none',
+  }
   return (
     <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '12px' }}>
       <div style={{ color: 'var(--text-secondary)', lineHeight: 1.5, backgroundColor: 'var(--bg-secondary)', padding: '8px', borderRadius: '4px' }}>
-        支持 OpenAI 兼容格式:MiniMax / OpenAI / DeepSeek / Qwen / Moonshot / Groq / Together 等。保存会写入本机 localStorage,并通过后端写入 .env.local。
+        当前 LLM 配置直接读取自本机 .env.local。配置修改后点击重新读取即可生效。
       </div>
 
       <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -660,13 +670,9 @@ function SettingsPanel({ draft, onChange, onSave, onCancel, saveStatus, saveErro
         <input
           type="text"
           value={draft.baseUrl}
-          onChange={update('baseUrl')}
-          placeholder="https://api.minimaxi.com/v1"
-          style={{
-            padding: '6px 8px', border: '1px solid var(--border-color)', borderRadius: '4px',
-            backgroundColor: 'var(--bg-secondary)', color: 'var(--text-primary)',
-            fontSize: '12px', fontFamily: 'ui-monospace, monospace', outline: 'none',
-          }}
+          readOnly
+          placeholder="未配置"
+          style={fieldStyle}
         />
       </label>
 
@@ -675,13 +681,9 @@ function SettingsPanel({ draft, onChange, onSave, onCancel, saveStatus, saveErro
         <input
           type="password"
           value={draft.apiKey}
-          onChange={update('apiKey')}
-          placeholder="sk-..."
-          style={{
-            padding: '6px 8px', border: '1px solid var(--border-color)', borderRadius: '4px',
-            backgroundColor: 'var(--bg-secondary)', color: 'var(--text-primary)',
-            fontSize: '12px', fontFamily: 'ui-monospace, monospace', outline: 'none',
-          }}
+          readOnly
+          placeholder="未配置"
+          style={fieldStyle}
         />
       </label>
 
@@ -690,13 +692,9 @@ function SettingsPanel({ draft, onChange, onSave, onCancel, saveStatus, saveErro
         <input
           type="text"
           value={draft.model}
-          onChange={update('model')}
-          placeholder="MiniMax-Text-01 / gpt-4o-mini / deepseek-chat"
-          style={{
-            padding: '6px 8px', border: '1px solid var(--border-color)', borderRadius: '4px',
-            backgroundColor: 'var(--bg-secondary)', color: 'var(--text-primary)',
-            fontSize: '12px', fontFamily: 'ui-monospace, monospace', outline: 'none',
-          }}
+          readOnly
+          placeholder="未配置"
+          style={fieldStyle}
         />
       </label>
 
@@ -707,38 +705,39 @@ function SettingsPanel({ draft, onChange, onSave, onCancel, saveStatus, saveErro
           min="5"
           max="200"
           value={draft.contextSize}
-          onChange={(e) => onChange({ ...draft, contextSize: Number(e.target.value) })}
+          readOnly
+          disabled
         />
         <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>
-          每次 query 会把最近这么多篇文章塞进 prompt。越多上下文越全,但 token 消耗越大。200 篇约 10K tokens,主流 LLM 还留很多余量。
+          Context 文章数来自配置文件中的 VITE_ASKCAT_CONTEXT_SIZE,未配置时默认 30。
         </span>
       </label>
 
-      {saveError && (
+      {loadError && (
         <div style={{ color: '#b91c1c', lineHeight: 1.5 }}>
-          保存 .env.local 失败:{saveError}
+          读取 .env.local 失败:{loadError}
         </div>
       )}
 
       <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
         <button
-          onClick={onSave}
-          disabled={saving}
+          onClick={onReload}
+          disabled={loading}
           style={{
             flex: 1, padding: '8px', border: 'none', borderRadius: '4px',
-            backgroundColor: 'var(--accent-color)', color: '#fff', cursor: saving ? 'default' : 'pointer', fontSize: '13px', fontWeight: 500,
-            opacity: saving ? 0.65 : 1,
+            backgroundColor: 'var(--accent-color)', color: '#fff', cursor: loading ? 'default' : 'pointer', fontSize: '13px', fontWeight: 500,
+            opacity: loading ? 0.65 : 1,
           }}
-        >{saving ? '保存中...' : '保存'}</button>
+        >{loading ? '读取中...' : '重新读取'}</button>
         <button
-          onClick={onCancel}
-          disabled={saving}
+          onClick={onClose}
+          disabled={loading}
           style={{
             flex: 1, padding: '8px', border: '1px solid var(--border-color)', borderRadius: '4px',
-            backgroundColor: 'transparent', color: 'var(--text-primary)', cursor: saving ? 'default' : 'pointer', fontSize: '13px',
-            opacity: saving ? 0.65 : 1,
+            backgroundColor: 'transparent', color: 'var(--text-primary)', cursor: loading ? 'default' : 'pointer', fontSize: '13px',
+            opacity: loading ? 0.65 : 1,
           }}
-        >取消</button>
+        >关闭</button>
       </div>
     </div>
   )

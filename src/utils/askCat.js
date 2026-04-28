@@ -1,7 +1,7 @@
 // Ask Cat - LLM 阅读助手核心逻辑
 //
 // 职责分三块:
-//   1. 配置管理(getLLMConfig / saveLLMConfig)
+//   1. 配置读取(getLLMConfig / fetchLLMConfig)
 //   2. Prompt 构建(buildContextArticles / buildMessages)
 //   3. LLM API 调用(callLLM,OpenAI-compatible Chat Completions 格式)
 //
@@ -10,8 +10,6 @@
 // baseUrl + apiKey + model 三件就能接入
 
 import { getArticleKey } from './articleKey'
-
-const CONFIG_KEY = 'rss-reader-llm-config'
 
 const env = import.meta.env || {}
 
@@ -22,33 +20,33 @@ export const DEFAULT_CONFIG = {
   contextSize: Math.max(5, Math.min(200, Number(env.VITE_ASKCAT_CONTEXT_SIZE) || 30)),
 }
 
-// ============ 配置管理 ============
+// ============ 配置读取 ============
 
-export function getLLMConfig() {
-  try {
-    const raw = localStorage.getItem(CONFIG_KEY)
-    if (!raw) return { ...DEFAULT_CONFIG }
-    const parsed = JSON.parse(raw)
-    return { ...DEFAULT_CONFIG, ...parsed }
-  } catch {
-    return { ...DEFAULT_CONFIG }
-  }
-}
-
-export function saveLLMConfig(config) {
-  const clean = {
-    baseUrl: (config.baseUrl || '').trim().replace(/\/+$/, ''), // 去尾部斜杠
+export function normalizeLLMConfig(config = {}) {
+  return {
+    baseUrl: (config.baseUrl || '').trim().replace(/\/+$/, ''),
     apiKey: (config.apiKey || '').trim(),
     model: (config.model || '').trim(),
     contextSize: Math.max(5, Math.min(200, Number(config.contextSize) || 30)),
   }
-  localStorage.setItem(CONFIG_KEY, JSON.stringify(clean))
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('rss-reader-llm-config-changed', {
-      detail: clean,
-    }))
+}
+
+export function getLLMConfig() {
+  return normalizeLLMConfig(DEFAULT_CONFIG)
+}
+
+export async function fetchLLMConfig(apiBaseUrl, { signal } = {}) {
+  const res = await fetch(`${apiBaseUrl}/api/admin/llm-config`, { signal })
+  if (!res.ok) {
+    let message = `HTTP ${res.status}`
+    try {
+      const data = await res.json()
+      message = data?.error || message
+    } catch { /* ignore */ }
+    throw new Error(message)
   }
-  return clean
+  const data = await res.json()
+  return normalizeLLMConfig({ ...DEFAULT_CONFIG, ...data })
 }
 
 export function isConfigValid(config) {

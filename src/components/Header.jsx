@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Rss, RefreshCw, Upload, PanelLeft, Sun, Moon, CloudSun, WifiOff, Cloud, Copy, Check, MessageCircle, Keyboard } from 'lucide-react'
+import { Rss, RefreshCw, Upload, PanelLeft, Sun, Moon, CloudSun, WifiOff, UserRound, Copy, Check, MessageCircle, Keyboard } from 'lucide-react'
 
 const themes = [
   { id: 'light', name: '浅色', icon: Sun },
@@ -28,7 +28,7 @@ function syncIconColor(status) {
 
 /**
  * Header 组件 - 顶部工具栏
- * 支持：刷新进度显示、主题切换、OPML 导入、离线状态提示、跨设备同步
+ * 支持：刷新进度显示、主题切换、OPML 导入、离线状态提示、用户状态
  */
 export default function Header({
   theme,
@@ -41,15 +41,13 @@ export default function Header({
   loading,
   progress,
   isOnline,
-  // 同步相关
+  // 用户状态相关
   syncId,
   syncStatus = 'idle',
   syncError = null,
   lastSyncedAt = null,
-  onEnableSync,
-  onPairSync,
-  onSync,
-  onDisableSync,
+  onCreateUserId,
+  onSetUserId,
   // Ask Cat
   onToggleAskCat,
   isAskCatOpen = false,
@@ -58,8 +56,6 @@ export default function Header({
 }) {
   const [showThemeMenu, setShowThemeMenu] = useState(false)
   const [showSyncMenu, setShowSyncMenu] = useState(false)
-  const [pairingMode, setPairingMode] = useState(false)
-  const [pairingInput, setPairingInput] = useState('')
   const [copyFeedback, setCopyFeedback] = useState(false)
   const [syncIdDraftState, setSyncIdDraftState] = useState(() => ({
     baseSyncId: syncId || '',
@@ -79,10 +75,10 @@ export default function Header({
   const handleSaveSyncId = () => {
     if (!isSyncIdDirty) return
     const ok = confirm(
-      '切换到此 Sync ID 会立即同步:当前设备的数据会与新 ID 对应的远端数据合并(UNION),然后双向写入。\n\n确定切换?'
+      '切换用户 ID 后,本机将加载该 ID 对应的已读状态、阅读列表和播放进度。\n\n确定切换?'
     )
     if (!ok) return
-    onPairSync?.(syncIdDraftTrimmed)
+    onSetUserId?.(syncIdDraftTrimmed)
   }
   const menuRef = useRef(null)
   const syncMenuRef = useRef(null)
@@ -95,8 +91,6 @@ export default function Header({
       }
       if (syncMenuRef.current && !syncMenuRef.current.contains(e.target)) {
         setShowSyncMenu(false)
-        setPairingMode(false)
-        setPairingInput('')
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
@@ -114,17 +108,9 @@ export default function Header({
     }
   }
 
-  const handleSubmitPair = () => {
-    const id = pairingInput.trim()
-    if (!id) return
-    onPairSync?.(id)
-    setPairingMode(false)
-    setPairingInput('')
-  }
-
-  const handleDisable = () => {
-    if (confirm('确定要关闭同步?本地数据保留,但新变化不再同步到其他设备。')) {
-      onDisableSync?.()
+  const handleCreateUser = () => {
+    if (confirm('生成新用户 ID 后,当前浏览器会切换到一份新的用户状态。原用户 ID 的数据仍然保留。')) {
+      onCreateUserId?.()
       setShowSyncMenu(false)
     }
   }
@@ -222,7 +208,7 @@ export default function Header({
             <RefreshCw size={18} className={isRefreshing || loading ? 'animate-spin' : ''} />
           </button>
         </div>
-        {/* 跨设备同步 */}
+        {/* 用户状态 */}
         <div ref={syncMenuRef} style={{ position: 'relative' }}>
           <button
             onClick={() => setShowSyncMenu((v) => !v)}
@@ -233,11 +219,11 @@ export default function Header({
               border: 'none',
               cursor: 'pointer',
             }}
-            title={syncId ? `同步: ${syncStatus === 'error' ? '错误' : '已启用'}` : '跨设备同步'}
+            title={syncStatus === 'error' ? '用户状态更新失败' : '用户状态'}
             onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'}
             onMouseLeave={(e) => { if (!showSyncMenu) e.currentTarget.style.backgroundColor = 'transparent' }}
           >
-            <Cloud
+            <UserRound
               size={18}
               style={{ color: syncIconColor(syncStatus) }}
               className={syncStatus === 'syncing' ? 'animate-pulse' : ''}
@@ -260,69 +246,18 @@ export default function Header({
               fontSize: '13px',
               color: 'var(--text-primary)',
             }}>
-              {!syncId ? (
-                // ---- 未启用状态 ----
-                pairingMode ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <div style={{ fontWeight: 600 }}>粘贴另一设备的 Sync ID</div>
-                    <input
-                      type="text"
-                      autoFocus
-                      value={pairingInput}
-                      onChange={(e) => setPairingInput(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') handleSubmitPair() }}
-                      placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                      style={{
-                        padding: '6px 8px',
-                        border: '1px solid var(--border-color)',
-                        borderRadius: '4px',
-                        fontSize: '12px',
-                        fontFamily: 'ui-monospace, monospace',
-                        backgroundColor: 'var(--bg-secondary)',
-                        color: 'var(--text-primary)',
-                      }}
-                    />
-                    <div style={{ display: 'flex', gap: '6px' }}>
-                      <button
-                        onClick={handleSubmitPair}
-                        style={{ flex: 1, padding: '6px', border: 'none', backgroundColor: 'var(--accent-color)', color: '#fff', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}
-                      >确定</button>
-                      <button
-                        onClick={() => { setPairingMode(false); setPairingInput('') }}
-                        style={{ flex: 1, padding: '6px', border: '1px solid var(--border-color)', backgroundColor: 'transparent', color: 'var(--text-secondary)', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}
-                      >取消</button>
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    <div style={{ fontWeight: 600 }}>☁️ 跨设备同步</div>
-                    <div style={{ color: 'var(--text-secondary)', fontSize: '12px', lineHeight: 1.5 }}>
-                      同步已读状态和阅读列表。首次启用会生成一个 Sync ID,在另一台设备上粘贴此 ID 即可配对。
-                    </div>
-                    <button
-                      onClick={() => { onEnableSync?.(); setShowSyncMenu(false) }}
-                      style={{ padding: '8px', border: 'none', backgroundColor: 'var(--accent-color)', color: '#fff', borderRadius: '4px', cursor: 'pointer', fontSize: '13px', fontWeight: 500 }}
-                    >启用同步</button>
-                    <button
-                      onClick={() => setPairingMode(true)}
-                      style={{ padding: '8px', border: '1px solid var(--border-color)', backgroundColor: 'transparent', color: 'var(--text-primary)', borderRadius: '4px', cursor: 'pointer', fontSize: '13px' }}
-                    >用现有 ID 配对</button>
-                  </div>
-                )
-              ) : (
-                // ---- 已启用状态 ----
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <Cloud size={14} style={{ color: syncIconColor(syncStatus) }} />
+                    <UserRound size={14} style={{ color: syncIconColor(syncStatus) }} />
                     <span>
-                      {syncStatus === 'syncing' ? '正在同步...'
-                        : syncStatus === 'error' ? '同步失败'
-                        : '同步已启用'}
+                      {syncStatus === 'syncing' ? '正在更新用户状态'
+                        : syncStatus === 'error' ? '用户状态更新失败'
+                        : '用户状态已就绪'}
                     </span>
                   </div>
 
                   <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                    Sync ID(勿公开分享,等同密钥;可编辑直接切换)
+                    用户 ID
                   </div>
                   <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
                     <input
@@ -355,7 +290,7 @@ export default function Header({
                   {isSyncIdDirty && (
                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                       <span style={{ flex: 1, fontSize: '11px', color: 'var(--text-muted)', lineHeight: 1.4 }}>
-                        切换到新 ID 会合并并同步
+                        切换后会加载新用户状态
                       </span>
                       <button
                         onClick={handleSaveSyncId}
@@ -386,7 +321,7 @@ export default function Header({
                   )}
 
                   <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                    上次同步: {formatRelative(lastSyncedAt)}
+                    上次更新: {formatRelative(lastSyncedAt)}
                     {syncError && (
                       <div style={{ color: '#ef4444', marginTop: '4px', fontSize: '11px' }}>
                         {syncError}
@@ -394,30 +329,13 @@ export default function Header({
                     )}
                   </div>
 
-                  <button
-                    onClick={() => { onSync?.() }}
-                    disabled={syncStatus === 'syncing'}
-                    style={{
-                      padding: '8px',
-                      border: 'none',
-                      backgroundColor: 'var(--accent-color)',
-                      color: '#fff',
-                      borderRadius: '4px',
-                      cursor: syncStatus === 'syncing' ? 'default' : 'pointer',
-                      fontSize: '13px',
-                      fontWeight: 500,
-                      opacity: syncStatus === 'syncing' ? 0.6 : 1,
-                    }}
-                  >立即同步</button>
-
                   <div style={{ borderTop: '1px solid var(--border-color)', margin: '4px 0' }} />
 
                   <button
-                    onClick={handleDisable}
-                    style={{ padding: '6px', border: 'none', backgroundColor: 'transparent', color: '#ef4444', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}
-                  >关闭同步</button>
+                    onClick={handleCreateUser}
+                    style={{ padding: '6px', border: '1px solid var(--border-color)', backgroundColor: 'transparent', color: 'var(--text-primary)', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}
+                  >生成新用户 ID</button>
                 </div>
-              )}
             </div>
           )}
         </div>
