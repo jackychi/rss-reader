@@ -1,8 +1,8 @@
-// 跨设备同步模块 - Cloudflare Workers KV 存后端
+// 跨设备同步模块 - Go 后端 + MySQL 用户状态库
 //
-// 核心设计:UNION merge。readStatus 和 readingList 都是单调增集合
-// (一旦加入永远不移除),所以 "合并两份状态" = "取并集,时间戳取最早"。
-// 这个幂等性让 syncNow 可以一视同仁地处理双向同步,不用区分 push/pull。
+// 核心设计:按 articleKey 合并。readStatus 为未来支持 unread 做成
+// latest-updatedAt-wins；readingList 保留 removedAt 墓碑；阅读/音频进度
+// 也按 updatedAt 决胜。
 //
 // 流程:
 //   1. 并发:GET remote  +  读本地 IDB
@@ -10,7 +10,7 @@
 //   3. 并发:POST merged 到 remote  +  writeLocal 把 merged 写回 IDB
 //   4. 返回 { readSet, readingList } 给 UI 层更新 state
 
-import { CORS_WORKER_URL } from './constants'
+import { CATREADER_API_URL } from './constants'
 import { getArticleKey } from './articleKey'
 import {
   getAllReadStatusRecords,
@@ -21,9 +21,9 @@ import {
   getArticleById,
 } from './db'
 
-const SYNC_ENDPOINT = `${CORS_WORKER_URL}/sync`
+const SYNC_ENDPOINT = `${CATREADER_API_URL}/api/user-state`
 const SYNC_ID_KEY = 'rss-reader-sync-id'
-export const SYNC_VERSION = 1
+export const SYNC_VERSION = 2
 
 // ============ Sync ID 管理 ============
 
@@ -61,32 +61,37 @@ export function generateSyncId() {
 
 // 导出供单测使用
 export function mergeStates(a, b) {
-  // readStatus:按 articleKey union,readAt 取较早的那份(保留首次已读时间)
+  const now = Date.now()
+
+  // readStatus:支持 read/unread。read/read 合并时保留首次 readAt,
+  // 状态冲突时 updatedAt 新的赢。
   const readMap = new Map()
-  for (const rec of [...(a?.readStatus || []), ...(b?.readStatus || [])]) {
-    if (!rec?.articleKey) continue
+  for (const raw of [...(a?.readStatus || []), ...(b?.readStatus || [])]) {
+    const rec = normalizeReadStatus(raw, now)
+    if (!rec.articleKey) continue
     const prev = readMap.get(rec.articleKey)
-    if (!prev || (rec.readAt ?? Infinity) < (prev.readAt ?? Infinity)) {
-      readMap.set(rec.articleKey, { articleKey: rec.articleKey, readAt: rec.readAt ?? Date.now() })
+    if (!prev) {
+      readMap.set(rec.articleKey, rec)
+    } else if (prev.status === 'read' && rec.status === 'read') {
+      readMap.set(rec.articleKey, {
+        ...rec,
+        readAt: Math.min(prev.readAt || rec.readAt || now, rec.readAt || prev.readAt || now),
+        updatedAt: Math.max(prev.updatedAt || 0, rec.updatedAt || 0),
+      })
+    } else if ((rec.updatedAt || 0) >= (prev.updatedAt || 0)) {
+      readMap.set(rec.articleKey, rec)
     }
   }
 
-  // readingList:按 id (= articleKey) union,墓碑优先
-  // 规则:如果任一方标记了 removedAt,取 removedAt 更大的那份(最新删除);
-  // 如果没有 removedAt,按 savedAt 取最早的(保留首次收藏时间)
+  // readingList:按 id (= articleKey) 合并,保留墓碑。新状态按 updatedAt 决胜。
   const listMap = new Map()
-  for (const item of [...(a?.readingList || []), ...(b?.readingList || [])]) {
+  for (const raw of [...(a?.readingList || []), ...(b?.readingList || [])]) {
+    const item = normalizeReadingListItem(raw, now)
     const key = item?.id ?? (item?.feedUrl && (item?.guid || item?.link) ? getArticleKey(item) : null)
     if (!key) continue
+    item.id = key
     const prev = listMap.get(key)
-    if (!prev) {
-      listMap.set(key, item)
-    } else if (item.removedAt || prev.removedAt) {
-      // 任一方有墓碑:取 removedAt 更大的(最新删除胜出)
-      if ((item.removedAt ?? 0) > (prev.removedAt ?? 0)) {
-        listMap.set(key, item)
-      }
-    } else if ((item.savedAt ?? 0) < (prev.savedAt ?? 0)) {
+    if (!prev || (item.updatedAt ?? 0) >= (prev.updatedAt ?? 0)) {
       listMap.set(key, item)
     }
   }
@@ -101,6 +106,8 @@ export function mergeStates(a, b) {
     updatedAt: Date.now(),
     readStatus: Array.from(readMap.values()),
     readingList,
+    readPositions: mergePositionMaps(a?.readPositions, b?.readPositions, now),
+    audioPositions: mergePositionMaps(a?.audioPositions, b?.audioPositions, now),
     // 含墓碑的完整列表,供 writeLocal / pushRemote 使用
     readingListAll,
   }
@@ -108,22 +115,75 @@ export function mergeStates(a, b) {
 
 // ============ 本地/远端 I/O ============
 
-async function readLocal() {
+function normalizeReadStatus(rec, now = Date.now()) {
+  if (!rec?.articleKey) return { articleKey: '' }
+  const status = rec.status || 'read'
+  const updatedAt = rec.updatedAt || rec.readAt || now
+  return {
+    articleKey: rec.articleKey,
+    status,
+    readAt: status === 'read' ? (rec.readAt || updatedAt) : (rec.readAt || 0),
+    updatedAt,
+  }
+}
+
+function normalizeReadingListItem(item, now = Date.now()) {
+  if (!item) return null
+  const updatedAt = item.updatedAt || item.removedAt || item.savedAt || now
+  return { ...item, updatedAt }
+}
+
+export function normalizePositionMap(map, now = Date.now()) {
+  const normalized = {}
+  for (const [key, value] of Object.entries(map || {})) {
+    if (!key) continue
+    if (typeof value === 'number') {
+      normalized[key] = { position: value, updatedAt: now }
+    } else if (value && typeof value === 'object') {
+      normalized[key] = {
+        position: Number(value.position ?? 0),
+        updatedAt: Number(value.updatedAt || now),
+      }
+    }
+  }
+  return normalized
+}
+
+function mergePositionMaps(a, b, now = Date.now()) {
+  const merged = {}
+  for (const source of [normalizePositionMap(a, now), normalizePositionMap(b, now)]) {
+    for (const [key, rec] of Object.entries(source)) {
+      if (!merged[key] || rec.updatedAt >= merged[key].updatedAt) {
+        merged[key] = rec
+      }
+    }
+  }
+  return merged
+}
+
+async function readLocal(localState = {}) {
   const [readStatus, readingList] = await Promise.all([
     getAllReadStatusRecords(),
     getReadingListWithTombstones(),
   ])
-  return { version: SYNC_VERSION, updatedAt: Date.now(), readStatus, readingList }
+  return {
+    version: SYNC_VERSION,
+    updatedAt: Date.now(),
+    readStatus,
+    readingList,
+    readPositions: normalizePositionMap(localState.readPositions),
+    audioPositions: normalizePositionMap(localState.audioPositions),
+  }
 }
 
-// push 前剥离 readingList 里的 content / contentSnippet 字段
-// 原因:单篇带图长文的 content HTML 很容易 200-500KB,几条就突破 KV 的 payload 上限
+// push 前剥离 readingList 里的 content 字段。
+// 原因:单篇带图长文的 content HTML 很容易 200-500KB,没必要作为用户状态重复存。
 // 本地 IDB 不动,内容依然能从本地 articles store(按 id = articleKey)回填
 function stripReadingListForWire(list) {
   return list.map((item) => {
     // 结构化克隆排除 content,其他字段原样保留
     // eslint-disable-next-line no-unused-vars
-    const { content, contentSnippet, ...rest } = item
+    const { content, ...rest } = item
     return rest
   })
 }
@@ -149,7 +209,7 @@ async function enrichReadingListWithContent(list) {
 
 async function writeLocal(merged) {
   await Promise.all([
-    saveReadStatusRecordsBatch(merged.readStatus),
+    saveReadStatusRecordsBatch(merged.readStatus.filter((r) => (r.status || 'read') === 'read')),
     // 写 readingList 时保留本地已有的 content,避免覆盖丢失
     // 场景:远端 item 被 stripReadingListForWire 剥离了 content,回填时 articles store
     // 可能已过期清理,此时直接 put 会把本地有 content 的记录覆盖成无 content 的
@@ -174,7 +234,7 @@ async function writeLocal(merged) {
 }
 
 async function pullRemote(id) {
-  const res = await fetch(`${SYNC_ENDPOINT}?key=${encodeURIComponent(id)}`)
+  const res = await fetch(`${SYNC_ENDPOINT}?syncid=${encodeURIComponent(id)}`)
   if (!res.ok) {
     throw new Error(`Pull failed: HTTP ${res.status}`)
   }
@@ -182,7 +242,7 @@ async function pullRemote(id) {
 }
 
 async function pushRemote(id, state) {
-  const res = await fetch(`${SYNC_ENDPOINT}?key=${encodeURIComponent(id)}`, {
+  const res = await fetch(`${SYNC_ENDPOINT}?syncid=${encodeURIComponent(id)}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(state),
@@ -197,10 +257,10 @@ async function pushRemote(id, state) {
 // ============ 主入口 ============
 
 // 双向同步。返回 { readSet, readingList, merged } 供 UI 更新 state
-export async function syncNow(id) {
+export async function syncNow(id, localState = {}) {
   if (!id) throw new Error('Sync ID 未设置')
 
-  const [remote, local] = await Promise.all([pullRemote(id), readLocal()])
+  const [remote, local] = await Promise.all([pullRemote(id), readLocal(localState)])
   const merged = mergeStates(local, remote)
 
   // readingListAll 含墓碑,用于写入远端和本地 IDB(让删除状态传播)
@@ -218,8 +278,10 @@ export async function syncNow(id) {
   ])
 
   return {
-    readSet: new Set(merged.readStatus.map((r) => r.articleKey)),
+    readSet: new Set(merged.readStatus.filter((r) => (r.status || 'read') === 'read').map((r) => r.articleKey)),
     readingList: enrichedList,
+    readPositions: merged.readPositions,
+    audioPositions: merged.audioPositions,
     merged,
   }
 }

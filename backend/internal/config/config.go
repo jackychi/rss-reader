@@ -13,6 +13,7 @@ type Config struct {
 	Addr                     string
 	DBPath                   string
 	FeedsFile                string
+	UserDB                   UserDBConfig
 	RefreshInterval          time.Duration
 	FetchTimeout             time.Duration
 	FetchConcurrency         int
@@ -24,14 +25,35 @@ type Config struct {
 	FeedIntroConcurrency     int
 }
 
+type UserDBConfig struct {
+	Driver   string
+	Host     string
+	Port     int
+	Database string
+	User     string
+	Password string
+}
+
+func (c UserDBConfig) Configured() bool {
+	return c.Host != "" || c.Database != "" || c.User != "" || c.Password != ""
+}
+
 func FromEnv() Config {
 	// 先加载本地 .env.local，再读取环境变量；显式环境变量始终优先。
 	loadEnvLocal()
 
 	return Config{
-		Addr:                     env("CATREADER_ADDR", ":8080"),
-		DBPath:                   env("CATREADER_DB_PATH", filepath.Join("data", "catreader.db")),
-		FeedsFile:                env("CATREADER_FEEDS_FILE", ""),
+		Addr:      env("CATREADER_ADDR", ":8080"),
+		DBPath:    env("CATREADER_DB_PATH", filepath.Join("data", "catreader.db")),
+		FeedsFile: env("CATREADER_FEEDS_FILE", ""),
+		UserDB: UserDBConfig{
+			Driver:   env("CATREADER_USER_DB_DRIVER", "mysql"),
+			Host:     env("CATREADER_USER_DB_HOST", ""),
+			Port:     envInt("CATREADER_USER_DB_PORT", 3306),
+			Database: env("CATREADER_USER_DB_NAME", ""),
+			User:     env("CATREADER_USER_DB_USER", ""),
+			Password: env("CATREADER_USER_DB_PASSWORD", ""),
+		},
 		RefreshInterval:          envDuration("CATREADER_REFRESH_INTERVAL", 10*time.Minute),
 		FetchTimeout:             envDuration("CATREADER_FETCH_TIMEOUT", 20*time.Second),
 		FetchConcurrency:         envInt("CATREADER_FETCH_CONCURRENCY", 5),

@@ -20,6 +20,12 @@ type Refresher struct {
 	running     bool
 }
 
+type RefreshResult struct {
+	Total   int `json:"total"`
+	Updated int `json:"updated"`
+	Failed  int `json:"failed"`
+}
+
 func NewRefresher(store *store.Store, fetcher *Fetcher, interval time.Duration, concurrency int) *Refresher {
 	if concurrency <= 0 {
 		concurrency = 5
@@ -60,17 +66,39 @@ func (r *Refresher) RefreshAll(ctx context.Context) {
 	}
 	defer r.finish()
 
+	r.refreshAll(ctx)
+}
+
+func (r *Refresher) RefreshSelected(ctx context.Context, feeds []store.Feed) RefreshResult {
+	if !r.tryStart() {
+		log.Printf("refresh already running; skipping")
+		return RefreshResult{}
+	}
+	defer r.finish()
+
 	if r.before != nil {
 		r.before(ctx)
 	}
+	return r.refreshFeeds(ctx, feeds)
+}
 
+func (r *Refresher) refreshAll(ctx context.Context) RefreshResult {
+	if r.before != nil {
+		r.before(ctx)
+	}
 	feeds, err := r.store.ListFeeds(ctx)
 	if err != nil {
 		log.Printf("list feeds: %v", err)
-		return
+		return RefreshResult{}
 	}
+	return r.refreshFeeds(ctx, feeds)
+}
+
+func (r *Refresher) refreshFeeds(ctx context.Context, feeds []store.Feed) RefreshResult {
+	result := RefreshResult{Total: len(feeds)}
 
 	jobs := make(chan store.Feed)
+	results := make(chan error, len(feeds))
 	var wg sync.WaitGroup
 	// 用固定数量 worker 拉取订阅源，避免同时请求过多站点或占满本地连接。
 	for i := 0; i < r.concurrency; i++ {
@@ -78,7 +106,7 @@ func (r *Refresher) RefreshAll(ctx context.Context) {
 		go func() {
 			defer wg.Done()
 			for feed := range jobs {
-				r.RefreshFeed(ctx, feed)
+				results <- r.RefreshFeed(ctx, feed)
 			}
 		}()
 	}
@@ -87,23 +115,35 @@ func (r *Refresher) RefreshAll(ctx context.Context) {
 		case <-ctx.Done():
 			close(jobs)
 			wg.Wait()
-			return
+			close(results)
+			result.Failed += len(feeds) - result.Updated - result.Failed
+			return result
 		case jobs <- feed:
 		}
 	}
 	close(jobs)
 	wg.Wait()
+	close(results)
+
+	for err := range results {
+		if err != nil {
+			result.Failed++
+		} else {
+			result.Updated++
+		}
+	}
 
 	if r.after != nil {
 		r.after(ctx)
 	}
+	return result
 }
 
-func (r *Refresher) RefreshFeed(ctx context.Context, feed store.Feed) {
+func (r *Refresher) RefreshFeed(ctx context.Context, feed store.Feed) error {
 	current, meta, err := r.store.GetFeedByURL(ctx, feed.URL)
 	if err != nil {
 		log.Printf("get feed %s: %v", feed.URL, err)
-		return
+		return err
 	}
 
 	result, err := r.fetcher.Fetch(ctx, current, meta)
@@ -112,20 +152,22 @@ func (r *Refresher) RefreshFeed(ctx context.Context, feed store.Feed) {
 		if markErr := r.store.MarkFeedFetchFailure(ctx, current.ID, err.Error()); markErr != nil {
 			log.Printf("mark fetch failure %s: %v", current.Title, markErr)
 		}
-		return
+		return err
 	}
 	if result.NotModified {
 		// 304 没有新文章，但仍保存最新的缓存头和成功时间，便于后续条件请求。
 		if err := r.store.SaveArticles(ctx, current, nil, result.Meta); err != nil {
 			log.Printf("save not-modified meta %s: %v", current.Title, err)
+			return err
 		}
-		return
+		return nil
 	}
 	if err := r.store.SaveArticles(ctx, current, result.Articles, result.Meta); err != nil {
 		log.Printf("save articles %s: %v", current.Title, err)
-		return
+		return err
 	}
 	log.Printf("refreshed %s: %d articles", current.Title, len(result.Articles))
+	return nil
 }
 
 func (r *Refresher) tryStart() bool {

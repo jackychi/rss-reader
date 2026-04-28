@@ -52,7 +52,7 @@ style: |
 ## 两天把一个本地 RSS 阅读器升级成个人知识库
 
 2026-04-17 → 04-19
-从 `localStorage 单机` 到 `IDB + Worker + KV 同步 + LLM 阅读助手`
+从 `localStorage 单机` 到 `IDB + Go/MySQL 同步 + LLM 阅读助手`
 
 ---
 
@@ -77,7 +77,7 @@ style: |
 |---|---|---|
 | 存储层 | localStorage → IDB | `refactor(cache)` `refactor(read-state)` |
 | 网络层 | 自建代理 + SWR | `feat(proxy)` `refactor(fetch)` |
-| 同步层 | 跨设备状态一致 | `feat(worker)` `feat(sync)` |
+| 同步层 | 跨设备状态一致 | `feat(sync)` `feat(user-state)` |
 | 产品层 | LLM 阅读助手 | `feat(askcat)` 系列 |
 
 从 stable tag 到 HEAD 一共 **13 个 commit**,共 **2000+ 行**改动。
@@ -209,11 +209,11 @@ refresh 按钮 = 联网抓新,替换 state
 
 ---
 
-## 同步层:KV + UNION merge
+## 同步层:Go/MySQL + 状态合并
 
 **唯一的操作:`syncNow(id)`**
 ```
-1. 并发:GET remote   +   读 local IDB
+1. 并发:GET backend   +   读 local IDB
 2. mergeStates(local, remote)   — 纯函数,UNION 合并
 3. 并发:POST merged  +   写 local
 ```
@@ -230,17 +230,17 @@ readStatus 和 readingList 都是**单调增集合**(一旦加入永远不移除
 
 ---
 
-## 同步层:Payload 413 的两层修
+## 同步层:Payload 过大的两层修
 
-**症状**:`Push failed: HTTP 413`
+**症状**:同步 payload 过大,网络和解析都变慢
 
-**根因**:阅读列表每条带完整 sanitized HTML content。带图长文 200-500KB,3-5 篇就过 1MB。
+**根因**:阅读列表每条带完整 sanitized HTML content。带图长文 200-500KB,几篇文章就会显著放大同步体积。
 
 **两层 defense in depth**
 
 | 层 | 改动 |
 |---|---|
-| **Worker** | `MAX_SYNC_PAYLOAD` 1MB → 5MB(兜底) |
+| **后端** | 用户状态落 MySQL,按 syncid 分表行存储 |
 | **客户端** | push 时剥离 content;pull 时从本地 articles store 按 id 回填 |
 
 修完后同样的 readingList,wire 体积从 1MB+ 缩到 ~50KB。
@@ -367,7 +367,7 @@ RSS Source → CF Worker(CORS) → useRSSFetcher → articles state
                         ↓
                 syncNow (debounced 3s)
                         ↓
-            UNION merge → Worker /sync → KV
+            状态合并 → Go backend /api/user-state → MySQL
                         ↓
     Ask Cat (LLM:articles 上下文 + 当前文章)
 ```

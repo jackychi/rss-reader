@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"strconv"
@@ -14,16 +15,18 @@ import (
 	"catreader/backend/internal/feedintro"
 	"catreader/backend/internal/rss"
 	"catreader/backend/internal/store"
+	"catreader/backend/internal/userstate"
 )
 
 type Server struct {
 	store          *store.Store
 	refresher      *rss.Refresher
 	introGenerator *feedintro.Generator
+	userState      *userstate.Store
 }
 
-func NewServer(store *store.Store, refresher *rss.Refresher, introGenerator *feedintro.Generator) *Server {
-	return &Server{store: store, refresher: refresher, introGenerator: introGenerator}
+func NewServer(store *store.Store, refresher *rss.Refresher, introGenerator *feedintro.Generator, userState *userstate.Store) *Server {
+	return &Server{store: store, refresher: refresher, introGenerator: introGenerator, userState: userState}
 }
 
 func (s *Server) Routes() http.Handler {
@@ -34,6 +37,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/feeds", s.handleFeeds)
 	mux.HandleFunc("GET /api/articles", s.handleArticles)
 	mux.HandleFunc("GET /api/articles/", s.handleArticle)
+	mux.HandleFunc("GET /api/user-state", s.handleGetUserState)
+	mux.HandleFunc("POST /api/user-state", s.handlePostUserState)
 	mux.HandleFunc("POST /api/admin/refresh", s.handleRefresh)
 	mux.HandleFunc("POST /api/admin/feed-intros/refresh", s.handleFeedIntroRefresh)
 	mux.HandleFunc("POST /api/admin/llm-config", s.handleLLMConfig)
@@ -117,11 +122,118 @@ func (s *Server) handleArticle(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, article)
 }
 
+func (s *Server) handleGetUserState(w http.ResponseWriter, r *http.Request) {
+	if s.userState == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("user state database is not configured"))
+		return
+	}
+	syncID, err := syncIDFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	state, err := s.userState.GetState(r.Context(), syncID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, state)
+}
+
+func (s *Server) handlePostUserState(w http.ResponseWriter, r *http.Request) {
+	if s.userState == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("user state database is not configured"))
+		return
+	}
+	syncID, err := syncIDFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	var state userstate.State
+	decoder := json.NewDecoder(r.Body)
+	decoder.UseNumber()
+	if err := decoder.Decode(&state); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := s.userState.SaveState(r.Context(), syncID, state); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	merged, err := s.userState.GetState(r.Context(), syncID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, merged)
+}
+
+type refreshRequest struct {
+	FeedURL  string `json:"feedUrl"`
+	Category string `json:"category"`
+	Wait     bool   `json:"wait"`
+}
+
 func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
-	// 请求返回后仍继续刷新；刷新器内部会阻止并发重复执行。
 	ctx := context.WithoutCancel(r.Context())
-	go s.refresher.RefreshAll(ctx)
-	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "status": "refresh started"})
+
+	var req refreshRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	req.FeedURL = strings.TrimSpace(req.FeedURL)
+	req.Category = strings.TrimSpace(req.Category)
+
+	// 无 body 的旧调用保持原行为:触发全量后台刷新后立即返回。
+	if !req.Wait && req.FeedURL == "" && req.Category == "" {
+		go s.refresher.RefreshAll(ctx)
+		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "status": "refresh started"})
+		return
+	}
+
+	feeds, err := s.refreshTargets(r.Context(), req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if len(feeds) == 0 {
+		writeError(w, http.StatusNotFound, errors.New("no matching feeds to refresh"))
+		return
+	}
+
+	result := s.refresher.RefreshSelected(ctx, feeds)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":     true,
+		"status": "refresh completed",
+		"result": result,
+	})
+}
+
+func (s *Server) refreshTargets(ctx context.Context, req refreshRequest) ([]store.Feed, error) {
+	if req.FeedURL != "" && req.Category != "" {
+		return nil, errors.New("feedUrl and category cannot both be set")
+	}
+	if req.FeedURL != "" {
+		return []store.Feed{{URL: req.FeedURL}}, nil
+	}
+
+	feeds, err := s.store.ListFeeds(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if req.Category == "" {
+		return feeds, nil
+	}
+
+	targets := make([]store.Feed, 0)
+	for _, feed := range feeds {
+		if feed.Category == req.Category {
+			targets = append(targets, feed)
+		}
+	}
+	return targets, nil
 }
 
 func (s *Server) handleFeedIntroRefresh(w http.ResponseWriter, r *http.Request) {
@@ -208,6 +320,32 @@ func intParam(raw string, fallback int) int {
 		return fallback
 	}
 	return value
+}
+
+func syncIDFromRequest(r *http.Request) (string, error) {
+	id := strings.TrimSpace(r.URL.Query().Get("syncid"))
+	if id == "" {
+		id = strings.TrimSpace(r.URL.Query().Get("key"))
+	}
+	id = strings.Join(strings.Fields(id), "")
+	id = strings.Map(func(r rune) rune {
+		switch r {
+		case '\u200B', '\u200C', '\u200D', '\uFEFF':
+			return -1
+		default:
+			return r
+		}
+	}, id)
+	if len(id) < 32 || len(id) > 128 {
+		return "", errors.New("syncid must be 32-128 characters")
+	}
+	for _, ch := range id {
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '-' {
+			continue
+		}
+		return "", errors.New("syncid can only contain letters, numbers, or hyphen")
+	}
+	return id, nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

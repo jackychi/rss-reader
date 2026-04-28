@@ -1,7 +1,8 @@
 // CatReader Worker
-// 两个职责:
-//   /?url=<target>   CORS 代理:代抓任意 http(s) URL,加 CORS 头后透传响应
-//   /sync?key=<id>   跨设备同步:KV 里存 per-user 的 readStatus + readingList JSON
+// RSS CORS 代理:
+//   /?url=<target>   代抓任意 http(s) RSS/Atom URL,加 CORS 头后透传响应。
+//
+// 用户状态同步已迁移到 Go 后端 `/api/user-state`,这里不再处理 /sync 或 KV。
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -10,85 +11,14 @@ const CORS_HEADERS = {
   'Access-Control-Max-Age': '86400',
 }
 
-// 客户端会剥离 readingList 里的 content 字段,实际 payload 通常 < 100KB;
-// 预留 5MB 应对异常大的 readStatus(几十万条)或客户端意外未剥离
-// KV 单 key 上限 25MB,5MB 还有 5x 余量
-const MAX_SYNC_PAYLOAD = 5 * 1024 * 1024
-const SYNC_KEY_RE = /^[a-zA-Z0-9-]{32,128}$/
-
 export default {
-  async fetch(request, env) {
+  async fetch(request) {
     const url = new URL(request.url)
-    if (url.pathname === '/sync') return handleSync(request, url, env)
     return handleProxy(request, url)
   },
 }
 
-// ============ /sync ============
-async function handleSync(request, url, env) {
-  if (request.method === 'OPTIONS') {
-    return new Response(null, { headers: CORS_HEADERS })
-  }
-
-  const key = url.searchParams.get('key')
-  if (!key) {
-    return json({ error: 'Missing ?key= param' }, 400)
-  }
-  if (!SYNC_KEY_RE.test(key)) {
-    return json({ error: 'Invalid key format' }, 400)
-  }
-
-  if (request.method === 'GET') {
-    const stored = await env.SYNC_KV.get(key, 'json')
-    if (stored) return json(stored, 200)
-    // 未同步过,返回空状态而非 404,简化客户端逻辑
-    return json({ version: 1, updatedAt: null, readStatus: [], readingList: [] }, 200)
-  }
-
-  if (request.method === 'POST') {
-    const contentLength = Number(request.headers.get('content-length') || 0)
-    if (contentLength > MAX_SYNC_PAYLOAD) {
-      return json({ error: 'Payload too large' }, 413)
-    }
-
-    let body
-    try {
-      body = await request.json()
-    } catch {
-      return json({ error: 'Invalid JSON body' }, 400)
-    }
-
-    // 粗略结构校验:必须有 version 和两个数组字段
-    if (
-      typeof body !== 'object' || body === null ||
-      typeof body.version !== 'number' ||
-      !Array.isArray(body.readStatus) ||
-      !Array.isArray(body.readingList)
-    ) {
-      return json({ error: 'Malformed sync payload' }, 400)
-    }
-
-    // 保险再量一次实际序列化后的大小(content-length 可能被客户端误报)
-    const serialized = JSON.stringify(body)
-    if (serialized.length > MAX_SYNC_PAYLOAD) {
-      return json({ error: 'Payload too large' }, 413)
-    }
-
-    await env.SYNC_KV.put(key, serialized)
-    return json({ ok: true, savedAt: Date.now() }, 200)
-  }
-
-  return json({ error: 'Method not allowed' }, 405)
-}
-
-function json(obj, status) {
-  return new Response(JSON.stringify(obj), {
-    status,
-    headers: { ...CORS_HEADERS, 'content-type': 'application/json; charset=utf-8' },
-  })
-}
-
-// ============ /?url=<target>(原代抓逻辑,行为不变) ============
+// ============ /?url=<target> ============
 async function handleProxy(request, url) {
   if (request.method === 'OPTIONS') {
     return new Response(null, { headers: CORS_HEADERS })

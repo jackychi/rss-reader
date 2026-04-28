@@ -1,9 +1,3 @@
 name = "catreader-proxy"
 main = "src/index.js"
 compatibility_date = "2026-04-17"
-
-# 跨设备同步用 KV namespace。env.SYNC_KV 里存 per-user 同步状态 JSON,
-# key 是客户端生成的 UUID。namespace 通过 wrangler kv:namespace create 创建。
-[[kv_namespaces]]
-binding = "SYNC_KV"
-id = "2ffb3be70ba749518e316453afd09bf2"

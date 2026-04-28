@@ -15,10 +15,28 @@ import (
 	"catreader/backend/internal/httpapi"
 	"catreader/backend/internal/rss"
 	"catreader/backend/internal/store"
+	"catreader/backend/internal/userstate"
 )
 
 func main() {
 	cfg := config.FromEnv()
+	var userStateStore *userstate.Store
+	if cfg.UserDB.Configured() {
+		log.Printf("CatReader user database config loaded: driver=%s host=%s port=%d database=%s user=%s password_configured=%t",
+			cfg.UserDB.Driver,
+			cfg.UserDB.Host,
+			cfg.UserDB.Port,
+			cfg.UserDB.Database,
+			cfg.UserDB.User,
+			cfg.UserDB.Password != "",
+		)
+		userStore, err := userstate.Open(context.Background(), cfg.UserDB)
+		if err != nil {
+			log.Fatalf("open user database: %v", err)
+		}
+		defer userStore.Close()
+		userStateStore = userStore
+	}
 
 	// 后端以 SQLite 作为本地持久化层，启动时先确保表结构可用。
 	db, err := store.Open(cfg.DBPath)
@@ -101,7 +119,7 @@ func main() {
 	go refresher.Start(ctx)
 	go introGenerator.Start(ctx)
 
-	api := httpapi.NewServer(db, refresher, introGenerator)
+	api := httpapi.NewServer(db, refresher, introGenerator, userStateStore)
 	server := &http.Server{
 		Addr:         cfg.Addr,
 		Handler:      api.Routes(),

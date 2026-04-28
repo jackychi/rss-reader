@@ -10,7 +10,7 @@ import { useRSSFetcher } from './hooks/useRSSFetcher'
 import { useOnlineStatus } from './hooks/useOnlineStatus'
 import { saveArticles, getArticles, clearExpiredCache, saveToReadingList, removeFromReadingList, getReadingList, saveFeedMeta, getAllReadStatus, saveReadStatusBatch, pruneOrphanedArticles } from './utils/db'
 import { getArticleKey } from './utils/articleKey'
-import { getSyncId, setSyncId, clearSyncId, generateSyncId, syncNow } from './utils/sync'
+import { getSyncId, setSyncId, clearSyncId, generateSyncId, normalizePositionMap, syncNow } from './utils/sync'
 import { CATREADER_API_URL } from './utils/constants'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import Header from './components/Header'
@@ -95,6 +95,38 @@ async function fetchServerArticle(id) {
   return normalizeServerArticle(await res.json())
 }
 
+async function refreshServerArticles({ feedUrl = '', category = '' } = {}) {
+  const body = { wait: true }
+  if (feedUrl) body.feedUrl = feedUrl
+  if (category) body.category = category
+
+  const res = await fetch(`${CATREADER_API_URL}/api/admin/refresh`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.json()
+}
+
+function positionValue(record) {
+  if (typeof record === 'number') return record
+  return Number(record?.position || 0)
+}
+
+function positionMapsEqual(a, b) {
+  const left = normalizePositionMap(a)
+  const right = normalizePositionMap(b)
+  const leftKeys = Object.keys(left)
+  const rightKeys = Object.keys(right)
+  if (leftKeys.length !== rightKeys.length) return false
+  return leftKeys.every((key) =>
+    right[key] &&
+    left[key].position === right[key].position &&
+    left[key].updatedAt === right[key].updatedAt
+  )
+}
+
 function App() {
   // ============ 状态管理 ============
   // 订阅源 - 持久化
@@ -118,7 +150,7 @@ function App() {
   const [readSet, setReadSet] = useState(() => new Set())
   const [unreadByFeed, setUnreadByFeed] = useState(() => new Map())
   const [idbReady, setIdbReady] = useState(false)   // 本地 IDB 加载完成
-  const [dataReady, setDataReady] = useState(false) // IDB + 首次同步(如有)都完成
+  const [dataReady, setDataReady] = useState(false) // 本地 IDB 状态可用于首屏显示
 
   // 其他状态
   const [selectedFeed, setSelectedFeed] = useState(null)
@@ -177,6 +209,17 @@ function App() {
       return result.readingList
     })
 
+    if (result.readPositions) {
+      setReadPositions(prev => (
+        positionMapsEqual(prev, result.readPositions) ? prev : result.readPositions
+      ))
+    }
+    if (result.audioPositions) {
+      setAudioPositions(prev => (
+        positionMapsEqual(prev, result.audioPositions) ? prev : result.audioPositions
+      ))
+    }
+
     // 新同步来的已读 key,要从 unreadByFeed 里相应 feed 的 Set 中移除
     setUnreadByFeed(prev => {
       const next = new Map()
@@ -189,7 +232,7 @@ function App() {
       }
       return next
     })
-  }, [])
+  }, [setAudioPositions, setReadPositions])
 
   const doSync = useCallback(async () => {
     const id = getSyncId()
@@ -199,7 +242,7 @@ function App() {
     setSyncStatus('syncing')
     setSyncError(null)
     try {
-      const result = await syncNow(id)
+      const result = await syncNow(id, { readPositions, audioPositions })
       applySyncResult(result)
       setSyncStatus('ok')
       setLastSyncedAt(Date.now())
@@ -210,7 +253,7 @@ function App() {
     } finally {
       syncInFlightRef.current = false
     }
-  }, [applySyncResult])
+  }, [applySyncResult, audioPositions, readPositions])
 
   const handleEnableSync = useCallback(() => {
     const id = generateSyncId()
@@ -263,7 +306,7 @@ function App() {
   }, [showReadingList])
 
   // 使用 RSS Fetcher Hook
-  const { loading, articles, error, progress, backgroundRefreshFeeds, createRequest, searchArticles, setArticles } = useRSSFetcher()
+  const { loading, articles, error, progress, createRequest, searchArticles, setArticles } = useRSSFetcher()
 
   // 网络状态检测
   const { isOnline } = useOnlineStatus()
@@ -547,30 +590,26 @@ function App() {
 
   // ============ 跨设备同步 - 初始同步 ============
   // syncId 存在且在线时触发一次 syncNow。syncId 变化(用户启用/配对)也会重跑。
-  // 初始同步完成后标记 dataReady(无 syncId 时 idbReady 即可)。
+  // IDB 就绪后先放行本地已读/未读显示;云端同步在后台合并并修正状态。
   const initialSyncDoneRef = useRef(false)
   useEffect(() => {
-    if (!syncId || !isOnline) {
-      // 未启用同步或离线:IDB 就绪即 dataReady
-      if (idbReady && !initialSyncDoneRef.current) {
-        initialSyncDoneRef.current = true
-        setDataReady(true)
-      }
-      return
+    if (!idbReady) return
+
+    if (!initialSyncDoneRef.current) {
+      initialSyncDoneRef.current = true
+      setDataReady(true)
     }
-    if (!idbReady) return // 先等 IDB 加载完再同步
+
+    if (!syncId || !isOnline) return
+
     const doInitialSync = async () => {
       try { await doSync() } catch { /* 同步失败也放行,避免卡死 */ }
-      if (!initialSyncDoneRef.current) {
-        initialSyncDoneRef.current = true
-        setDataReady(true)
-      }
     }
     doInitialSync()
   }, [syncId, isOnline, idbReady, doSync])
 
   // ============ 跨设备同步 - 自动推送 ============
-  // readSet / readingList 变化时 debounce 3s 调 syncNow。
+  // readSet / readingList / 阅读进度变化时 debounce 3s 调 syncNow。
   // syncInitRef 守卫 mount 时第一次变化(init useEffect 把 readSet 从空变有会触发)。
   // applySyncResult 里有 compare-before-update,sync 结果若与当前 state 相同不触发
   // 再次 setReadSet,从而断掉 "sync → setState → useEffect → sync" 的死循环。
@@ -593,7 +632,7 @@ function App() {
         clearTimeout(syncPushTimerRef.current)
       }
     }
-  }, [readSet, readingList, syncId, isOnline, doSync])
+  }, [readSet, readingList, readPositions, audioPositions, syncId, isOnline, doSync])
 
   // ============ 主题处理 ============
   useEffect(() => {
@@ -872,8 +911,8 @@ function App() {
     }
   }, [feeds, createRequest, setArticles])
 
-  // SWR 刷新:保留当前文章在屏上,后台抓数据 + 写 IDB,完成后从 IDB 重新加载
-  // 如果刷新期间用户切走了,requestIdRef 不匹配就跳过 UI 更新,但 IDB 已经写入
+  // 手动刷新:由 Go 后端抓取当前范围并写入 SQLite,完成后再从后端重新加载当前视图。
+  // 如果刷新期间用户切走了,requestIdRef 不匹配就跳过 UI 更新。
   const handleRefresh = useCallback(async () => {
     if (!selectedFeed) return
     const currentId = createRequest()
@@ -884,6 +923,7 @@ function App() {
       // 文章总计:以后端为准,IndexedDB 只做失败兜底
       if (selectedFeed.xmlUrl === 'cached') {
         try {
+          await refreshServerArticles()
           const [stats, serverArticles] = await Promise.all([
             fetchServerStats(),
             fetchServerArticles(),
@@ -901,38 +941,26 @@ function App() {
         return
       }
 
-      // 确定要刷新的 feed 列表
-      let feedList = [selectedFeed]
       if (selectedFeed.xmlUrl?.startsWith('category:')) {
-        const categoryObj = feeds.find(c => c.category === selectedFeed.category)
-        if (!categoryObj) return
-        feedList = categoryObj.feeds
-      }
-
-      // 后台静默抓取,不动 UI(不清文章、不显示 spinner)
-      const result = await backgroundRefreshFeeds(feedList, currentId)
-      if (!result || currentId !== requestIdRef.current) return
-
-      // 刷新完成,从后端重新加载当前视图
-      if (selectedFeed.xmlUrl?.startsWith('category:')) {
+        await refreshServerArticles({ category: selectedFeed.category })
+        if (currentId !== requestIdRef.current) return
         const serverArticles = await fetchServerArticles({ category: selectedFeed.category })
         if (currentId !== requestIdRef.current) return
         setArticles(serverArticles)
         if (serverArticles.length > 0) await saveArticles(serverArticles)
-      } else {
-        const serverArticles = await fetchServerArticles({ feedUrl: selectedFeed.xmlUrl })
-        if (currentId !== requestIdRef.current) return
-        setArticles(serverArticles)
-        if (serverArticles.length > 0) await saveArticles(serverArticles)
+        return
       }
 
-      if (result.failedCount > 0) {
-        console.warn(`[App] Refresh completed with ${result.failedCount} failed feed(s)`)
-      }
+      await refreshServerArticles({ feedUrl: selectedFeed.xmlUrl })
+      if (currentId !== requestIdRef.current) return
+      const serverArticles = await fetchServerArticles({ feedUrl: selectedFeed.xmlUrl })
+      if (currentId !== requestIdRef.current) return
+      setArticles(serverArticles)
+      if (serverArticles.length > 0) await saveArticles(serverArticles)
     } finally {
       setIsRefreshing(false)
     }
-  }, [selectedFeed, feeds, createRequest, backgroundRefreshFeeds, setArticles, setServerArticleCount])
+  }, [selectedFeed, createRequest, setArticles, setServerArticleCount])
 
   // 标记当前订阅源(或 "文章总计" / 分类视图下所有 feed)的未读文章为已读
   // 直接从 unreadByFeed 里取 key,不需要回头扫 articles
@@ -1101,24 +1129,24 @@ function App() {
 
   // 获取文章的阅读位置
   const getArticleReadPosition = useCallback((article) => {
-    return readPositions[getArticleKey(article)] || 0
+    return positionValue(readPositions[getArticleKey(article)])
   }, [readPositions])
 
   // 获取文章的音频位置
   const getArticleAudioPosition = useCallback((article) => {
-    return audioPositions[getArticleKey(article)] || 0
+    return positionValue(audioPositions[getArticleKey(article)])
   }, [audioPositions])
 
   // 更新阅读位置
   const handleUpdateReadPosition = useCallback((article, position) => {
     const articleKey = getArticleKey(article)
-    setReadPositions(prev => ({ ...prev, [articleKey]: position }))
+    setReadPositions(prev => ({ ...prev, [articleKey]: { position, updatedAt: Date.now() } }))
   }, [setReadPositions])
 
   // 更新音频位置
   const handleUpdateAudioPosition = useCallback((article, position) => {
     const articleKey = getArticleKey(article)
-    setAudioPositions(prev => ({ ...prev, [articleKey]: position }))
+    setAudioPositions(prev => ({ ...prev, [articleKey]: { position, updatedAt: Date.now() } }))
   }, [setAudioPositions])
 
   // 选择文章时标记为已读
