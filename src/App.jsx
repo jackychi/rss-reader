@@ -8,11 +8,10 @@ import { defaultFeeds } from './data/defaultFeeds'
 import { useLocalStorage } from './hooks/useLocalStorage'
 import { useRSSFetcher } from './hooks/useRSSFetcher'
 import { useOnlineStatus } from './hooks/useOnlineStatus'
-import { saveArticles, getArticles, clearExpiredCache, saveToReadingList, removeFromReadingList, getReadingList, saveFeedMeta, getFeedMeta, getAllReadStatus, saveReadStatusBatch, pruneOrphanedArticles } from './utils/db'
+import { saveArticles, getArticles, clearExpiredCache, saveToReadingList, removeFromReadingList, getReadingList, saveFeedMeta, getAllReadStatus, saveReadStatusBatch, pruneOrphanedArticles } from './utils/db'
 import { getArticleKey } from './utils/articleKey'
-import { callLLM, getLLMConfig, isConfigValid } from './utils/askCat'
-import { getFeedIntroFingerprint, getLLMConfigFingerprint, isFeedIntroCacheValid } from './utils/feedIntroCache'
 import { getSyncId, setSyncId, clearSyncId, generateSyncId, syncNow } from './utils/sync'
+import { CATREADER_API_URL } from './utils/constants'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import Header from './components/Header'
 import Sidebar from './components/Sidebar'
@@ -30,7 +29,7 @@ const STORAGE_KEYS = {
   EXPANDED_CATS: 'rss-reader-expanded-cats',
   READ_POSITIONS: 'rss-reader-read-positions',
   AUDIO_POSITIONS: 'rss-reader-audio-positions',
-  FEED_INTROS: 'rss-reader-feed-intros',
+  SERVER_ARTICLE_COUNT: 'rss-reader-server-article-count',
 }
 
 // 已迁移到 IndexedDB 的遗留 localStorage 键,启动时一次性清掉
@@ -51,30 +50,49 @@ function toParagraphHtml(text) {
     .join('')
 }
 
-function buildFeedIntroMessages(feed, articles) {
-  const recentArticles = [...articles]
-    .sort((a, b) => new Date(b.pubDate || b.isoDate || 0) - new Date(a.pubDate || a.isoDate || 0))
-    .slice(0, 12)
-    .map((article, index) => {
-      const date = article.pubDate || article.isoDate || ''
-      const snippet = (article.contentSnippet || article.description || '')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .slice(0, 180)
-      return `${index + 1}. ${article.title || '(无标题)'}${date ? ` (${date})` : ''}\n${snippet}`
-    })
-    .join('\n\n')
+const SERVER_ARTICLE_LIMIT = 500
 
-  return [
-    {
-      role: 'system',
-      content: '你是 CatReader 里的 RSS 栏目编辑。根据栏目最近文章，写一个中文栏目介绍，帮助读者判断这个订阅源主要关注什么。不要编造文章列表之外的信息。',
-    },
-    {
-      role: 'user',
-      content: `订阅源: ${feed.title}\nFeed URL: ${feed.xmlUrl}\n\n最近文章:\n${recentArticles}\n\n请输出:\n- 1 句总体定位\n- 2 到 3 个主要关注方向\n- 1 句适合什么读者\n\n要求简洁、自然，不超过 180 字。`,
-    },
-  ]
+function formatArticleCount(count) {
+  return Number(count || 0).toLocaleString('en-US')
+}
+
+function normalizeServerArticle(article) {
+  const publishedAt = article.publishedAt || article.pubDate || article.isoDate || ''
+  return {
+    ...article,
+    feedUrl: article.feedUrl || article.feed_url || '',
+    feedTitle: article.feedTitle || article.feed_title || '',
+    contentSnippet: article.contentSnippet || article.content_snippet || '',
+    pubDate: publishedAt,
+    isoDate: publishedAt,
+  }
+}
+
+async function fetchServerStats() {
+  const res = await fetch(`${CATREADER_API_URL}/api/stats`)
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.json()
+}
+
+async function fetchServerArticles({ feedUrl = '', category = '', search = '', limit = SERVER_ARTICLE_LIMIT, offset = 0 } = {}) {
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  })
+  if (feedUrl) params.set('feed_url', feedUrl)
+  if (category) params.set('category', category)
+  if (search) params.set('q', search)
+
+  const res = await fetch(`${CATREADER_API_URL}/api/articles?${params}`)
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const data = await res.json()
+  return (data.items || []).map(normalizeServerArticle)
+}
+
+async function fetchServerArticle(id) {
+  const res = await fetch(`${CATREADER_API_URL}/api/articles/${encodeURIComponent(id)}`)
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return normalizeServerArticle(await res.json())
 }
 
 function App() {
@@ -91,8 +109,8 @@ function App() {
   const [readPositions, setReadPositions] = useLocalStorage(STORAGE_KEYS.READ_POSITIONS, {})
   // 音频播放位置 - 持久化
   const [audioPositions, setAudioPositions] = useLocalStorage(STORAGE_KEYS.AUDIO_POSITIONS, {})
-  // LLM 生成的订阅源栏目介绍,按 feed URL 缓存,避免重复消耗模型调用
-  const [feedIntros, setFeedIntros] = useLocalStorage(STORAGE_KEYS.FEED_INTROS, {})
+  // 服务端统一生成的栏目介绍,按 feed URL 建索引。
+  const [serverFeedIntros, setServerFeedIntros] = useState({})
 
   // 已读/未读状态 - 内存镜像,持久化层是 IndexedDB readStatus store
   // readSet: 已读文章 key 集合,O(1) 查询
@@ -116,14 +134,14 @@ function App() {
   // 阅读列表状态
   const [readingList, setReadingList] = useState([])
   const [showReadingList, setShowReadingList] = useState(false)
+  const [serverArticleCount, setServerArticleCount] = useLocalStorage(STORAGE_KEYS.SERVER_ARTICLE_COUNT, 0)
 
   // Ask Cat 抽屉状态(始终挂载组件,仅切换可见性)
   const [isAskCatOpen, setIsAskCatOpen] = useState(false)
   // 快捷键帮助浮层
   const [showShortcutsOverlay, setShowShortcutsOverlay] = useState(false)
-  const [feedIntroStatus, setFeedIntroStatus] = useState('idle') // idle | loading | ready | empty | unconfigured | error
+  const [feedIntroStatus, setFeedIntroStatus] = useState('idle') // idle | loading | ready | empty | error
   const [feedIntroError, setFeedIntroError] = useState(null)
-  const [llmConfigVersion, setLlmConfigVersion] = useState(0)
 
   // 跨设备同步状态
   const [syncId, setSyncIdState] = useState(() => getSyncId())
@@ -245,20 +263,23 @@ function App() {
   }, [showReadingList])
 
   // 使用 RSS Fetcher Hook
-  const { loading, articles, error, progress, fetchFeed, fetchAllFeeds, backgroundRefreshFeeds, createRequest, searchArticles, setArticles } = useRSSFetcher()
+  const { loading, articles, error, progress, backgroundRefreshFeeds, createRequest, searchArticles, setArticles } = useRSSFetcher()
 
   // 网络状态检测
   const { isOnline } = useOnlineStatus()
 
   // 请求 ID，用于处理竞态条件
   const requestIdRef = useRef(0)
-  const feedIntroAbortRef = useRef(null)
 
   // 过滤后的文章（支持搜索）
   const filteredArticles = useMemo(() => {
     if (!articleSearchQuery.trim()) return articles
     return searchArticles(articleSearchQuery, articles)
   }, [articles, articleSearchQuery, searchArticles])
+
+  const activeNavigationArticles = useMemo(() => (
+    showReadingList ? readingList : filteredArticles
+  ), [showReadingList, readingList, filteredArticles])
 
   // 保存文章到 IndexedDB 缓存(仅依赖 articles/loading,避免 readSet 变化时重复写)
   useEffect(() => {
@@ -270,15 +291,60 @@ function App() {
     })
   }, [articles, loading])
 
+  const refreshServerStats = useCallback(() => {
+    return fetchServerStats()
+      .then((stats) => {
+        setServerArticleCount(stats.articleCount || 0)
+      })
+      .catch((err) => {
+        console.info('[Stats] backend stats unavailable:', err?.message || err)
+      })
+  }, [setServerArticleCount])
+
   useEffect(() => {
-    const handleLLMConfigChange = () => setLlmConfigVersion((v) => v + 1)
-    window.addEventListener('rss-reader-llm-config-changed', handleLLMConfigChange)
-    window.addEventListener('storage', handleLLMConfigChange)
-    return () => {
-      window.removeEventListener('rss-reader-llm-config-changed', handleLLMConfigChange)
-      window.removeEventListener('storage', handleLLMConfigChange)
-    }
+    refreshServerStats()
+    const timer = window.setInterval(refreshServerStats, 60_000)
+    return () => window.clearInterval(timer)
+  }, [refreshServerStats])
+
+  const refreshServerFeedIntros = useCallback((signal) => {
+    return fetch(`${CATREADER_API_URL}/api/feeds`, { signal })
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        return res.json()
+      })
+      .then((data) => {
+        const next = {}
+        for (const category of data.categories || []) {
+          for (const feed of category.feeds || []) {
+            if (feed.url && feed.intro?.content) {
+              next[feed.url] = feed.intro
+            }
+          }
+        }
+        setServerFeedIntros(next)
+      })
+      .catch((err) => {
+        if (err?.name === 'AbortError') return
+        console.info('[FeedIntro] backend intros unavailable:', err?.message || err)
+      })
   }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    refreshServerFeedIntros(controller.signal)
+    const timer = window.setInterval(() => {
+      refreshServerFeedIntros()
+    }, 60_000)
+    return () => {
+      controller.abort()
+      window.clearInterval(timer)
+    }
+  }, [refreshServerFeedIntros])
+
+  useEffect(() => {
+    refreshServerFeedIntros()
+  }, [selectedFeed?.xmlUrl, refreshServerFeedIntros])
 
   useEffect(() => {
     let cancelled = false
@@ -290,8 +356,6 @@ function App() {
       })
     }
 
-    feedIntroAbortRef.current?.abort()
-
     const isSingleFeed = selectedFeed?.xmlUrl &&
       selectedFeed.xmlUrl !== 'cached' &&
       !selectedFeed.xmlUrl.startsWith('category:')
@@ -301,11 +365,8 @@ function App() {
       return () => { cancelled = true }
     }
 
-    const config = getLLMConfig()
-    const fingerprint = getFeedIntroFingerprint(articles)
-    const configFingerprint = getLLMConfigFingerprint(config)
-    const cachedIntro = feedIntros[selectedFeed.xmlUrl]
-    if (isFeedIntroCacheValid(cachedIntro, articles, config)) {
+    const serverIntro = serverFeedIntros[selectedFeed.xmlUrl]
+    if (serverIntro?.content) {
       scheduleFeedIntroState('ready')
       return () => { cancelled = true }
     }
@@ -315,55 +376,15 @@ function App() {
       return () => { cancelled = true }
     }
 
-    if (articles.length === 0) {
-      scheduleFeedIntroState('empty')
-      return () => { cancelled = true }
-    }
-
-    if (!isConfigValid(config)) {
-      scheduleFeedIntroState('unconfigured')
-      return () => { cancelled = true }
-    }
-
-    const controller = new AbortController()
-    feedIntroAbortRef.current = controller
-    scheduleFeedIntroState('loading')
-
-    callLLM(buildFeedIntroMessages(selectedFeed, articles), config, { signal: controller.signal })
-      .then((reply) => {
-        if (controller.signal.aborted) return
-        setFeedIntros((prev) => ({
-          ...prev,
-          [selectedFeed.xmlUrl]: {
-            content: reply.content,
-            generatedAt: Date.now(),
-            articleCount: articles.length,
-            fingerprint,
-            configFingerprint,
-          },
-        }))
-        setFeedIntroStatus('ready')
-      })
-      .catch((err) => {
-        if (err?.name === 'AbortError') return
-        console.error('[FeedIntro] LLM call failed:', err)
-        scheduleFeedIntroState('error', err?.message || '生成栏目介绍失败')
-      })
-
-    return () => {
-      cancelled = true
-      controller.abort()
-    }
+    scheduleFeedIntroState('empty')
+    return () => { cancelled = true }
   }, [
     selectedFeed,
     selectedArticle,
     showReadingList,
-    feedIntros,
-    articles,
+    serverFeedIntros,
     loading,
     isSwitchingFeed,
-    llmConfigVersion,
-    setFeedIntros,
   ])
 
   // 增量维护 unreadByFeed:新 articles 里不在 readSet 的 key 加入对应 feed 的未读集合
@@ -522,9 +543,7 @@ function App() {
     loadReadingList()
   }, [loadReadingList])
 
-  // 启动时不再自动全量抓 feed,改为"点击 feed = 读 IDB 缓存;过期则后台 revalidate;
-  // 用户主动点刷新才显式抓"——见 handleSelectFeed 和 handleRefresh。首次装完没缓存
-  // 的新 feed,点进去时走阻塞式 fetch(fetchAllFeeds)显示加载状态。
+  // 启动时不再自动全量抓 feed。文章展示优先走后端,IndexedDB 只作为本机缓存和离线兜底。
 
   // ============ 跨设备同步 - 初始同步 ============
   // syncId 存在且在线时触发一次 syncNow。syncId 变化(用户启用/配对)也会重跑。
@@ -611,7 +630,7 @@ function App() {
   // 未读文章 Set(ArticleList 用于红点标识,接口保持 Set 不变)
   const unreadArticles = useMemo(() => {
     if (selectedFeed?.xmlUrl === 'cached') {
-      // "已缓存文章"视图:所有 feed 的未读合集
+      // "文章总计"视图:所有 feed 的未读合集
       const merged = new Set()
       unreadByFeed.forEach(set => set.forEach(k => merged.add(k)))
       return merged
@@ -728,7 +747,7 @@ function App() {
   const getArticleAudio = useCallback((article) => {
     const content = article.content || article['content:encoded'] || article.contentSnippet || ''
     const enclosureUrl = article.enclosure?.url || article.enclosure?.link
-    if (enclosureUrl && article.enclosure?.type?.includes('audio')) {
+    if (enclosureUrl && (article.enclosure?.type?.includes('audio') || /\.(mp3|m4a|wav|ogg|aac)(?:[?#].*)?$/i.test(enclosureUrl))) {
       return enclosureUrl
     }
     if (article.mediaContent?.url && article.mediaContent?.type?.startsWith('audio')) {
@@ -746,14 +765,7 @@ function App() {
   }, [])
 
   // ============ 事件处理 ============
-  // 点击 feed 的交互采用 stale-while-revalidate 模式:
-  //   1. 立即读 IDB 缓存 setArticles(秒开,UI 永远不 block)
-  //   2. 离线 → 到此为止
-  //   3. 缓存为空(新 feed 首次访问) → 走 fetchAllFeeds 阻塞抓,配合 loading 指示
-  //   4. 缓存存在但超过 STALE_TTL → 静默 revalidate(fetchFeed 不 set loading),
-  //      抓到新数据后 setArticles 覆盖、saveFeedMeta 更新时间戳
-  //   5. 缓存新鲜 → 完全不请求网络
-  // 想要强制刷新时用顶栏刷新按钮(handleRefresh)
+  // 文章内容以后端为主,IndexedDB 只做本机缓存和离线兜底。
   const handleSelectFeed = useCallback(async (_category, feed) => {
     const currentId = createRequest()
     requestIdRef.current = currentId
@@ -768,72 +780,56 @@ function App() {
     setIsSwitchingFeed(true)
     setArticles([])
 
-    // 1. 先读 IDB 立即展示
-    const cachedArticles = await getArticles(feed.xmlUrl)
-    if (currentId !== requestIdRef.current) return
-    setIsSwitchingFeed(false)
-    setArticles(cachedArticles)
-
-    // 2. 离线到此为止
-    if (!isOnline) return
-
-    // 3. IDB 空:首次访问,阻塞式抓(显示 loading)
-    if (cachedArticles.length === 0) {
-      const fetched = await fetchAllFeeds([feed], currentId)
-      if (fetched.length > 0) {
+    try {
+      const serverArticles = await fetchServerArticles({ feedUrl: feed.xmlUrl })
+      if (currentId !== requestIdRef.current) return
+      setArticles(serverArticles)
+      setIsSwitchingFeed(false)
+      if (serverArticles.length > 0) {
+        await saveArticles(serverArticles)
         await saveFeedMeta(feed.xmlUrl, Date.now())
       }
       return
-    }
-
-    // 4. 看 TTL,新鲜就跳过 revalidate
-    const STALE_TTL = 15 * 60 * 1000
-    const meta = await getFeedMeta(feed.xmlUrl)
-    if (currentId !== requestIdRef.current) return
-    const cacheAge = meta ? Date.now() - meta.lastFetchedAt : Infinity
-    if (cacheAge < STALE_TTL) return
-
-    // 5. 过期 → 静默 revalidate(fetchFeed 不 set loading,UI 保留缓存文章)
-    try {
-      const result = await fetchFeed(feed)
-      if (currentId !== requestIdRef.current) return
-      if (result?.articles?.length > 0) {
-        setArticles(result.articles)
-        await saveFeedMeta(feed.xmlUrl, Date.now())
-      }
     } catch {
-      // 悄默失败,IDB 缓存仍在屏上
+      const cachedArticles = await getArticles(feed.xmlUrl)
+      if (currentId !== requestIdRef.current) return
+      setArticles(cachedArticles)
+      setIsSwitchingFeed(false)
     }
-  }, [createRequest, fetchFeed, fetchAllFeeds, isOnline, setArticles])
+  }, [createRequest, setArticles])
 
   const handleSelectAll = useCallback(async () => {
     const currentId = createRequest()
     requestIdRef.current = currentId
-    setSelectedFeed({ title: '已缓存文章', xmlUrl: 'cached' })
+    setSelectedFeed({ title: `文章总计 ${formatArticleCount(serverArticleCount)}`, xmlUrl: 'cached' })
     setSelectedArticle(null)
     setShowOriginal(false)
-    setShowReadingList(false) // 切换到已缓存文章时退出阅读列表视图
+    setShowReadingList(false) // 切换到文章总计时退出阅读列表视图
     setArticleSearchQuery('')
-    setIsFullscreen(false) // 切换到已缓存文章时退出全屏模式
+    setIsFullscreen(false) // 切换到文章总计时退出全屏模式
 
     // 立即清空,防止上一个视图的旧文章残留在屏上
     setIsSwitchingFeed(true)
     setArticles([])
 
-    // 直接从 IndexedDB 加载所有缓存的文章
-    console.log('[App] Loading all cached articles from IndexedDB')
-    const cachedArticles = await getArticles()
-    if (currentId !== requestIdRef.current) return
-    setIsSwitchingFeed(false)
-    if (cachedArticles.length > 0) {
-      console.log('[App] Loaded', cachedArticles.length, 'cached articles')
-      // 按发布时间倒序排列
-      const sorted = cachedArticles.sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate))
-      setArticles(sorted)
-    } else {
-      setArticles([])
+    try {
+      const [stats, serverArticles] = await Promise.all([
+        fetchServerStats(),
+        fetchServerArticles(),
+      ])
+      if (currentId !== requestIdRef.current) return
+      setServerArticleCount(stats.articleCount || 0)
+      setSelectedFeed({ title: `文章总计 ${formatArticleCount(stats.articleCount)}`, xmlUrl: 'cached' })
+      setArticles(serverArticles)
+      setIsSwitchingFeed(false)
+      if (serverArticles.length > 0) await saveArticles(serverArticles)
+    } catch {
+      const cachedArticles = await getArticles()
+      if (currentId !== requestIdRef.current) return
+      setArticles(cachedArticles)
+      setIsSwitchingFeed(false)
     }
-  }, [createRequest, setArticles])
+  }, [createRequest, serverArticleCount, setArticles, setServerArticleCount])
 
   // 选中某个分类(folder):展示该分类下所有 feed 的缓存文章;refresh 会批量抓所有 feed
   // 用 xmlUrl 前缀 `category:` 作为 sentinel,跟单 feed / "cached" 区分
@@ -858,17 +854,22 @@ function App() {
     setIsSwitchingFeed(true)
     setArticles([])
 
-    // 从 IDB 取全部文章,按分类下的 feedUrl 过滤
-    const feedUrls = new Set(categoryObj.feeds.map(f => f.xmlUrl))
-    const all = await getArticles()
-    if (currentId !== requestIdRef.current) return
-    setIsSwitchingFeed(false)
-    const filtered = all
-      .filter(a => feedUrls.has(a.feedUrl))
-      .sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate))
-    setArticles(filtered)
-    // 不触发网络 fetch,保持跟 handleSelectFeed 一样的 SWR 哲学
-    // 用户想拉新数据就点中间栏刷新按钮,走 handleRefresh 的分类分支
+    try {
+      const serverArticles = await fetchServerArticles({ category: categoryName })
+      if (currentId !== requestIdRef.current) return
+      setArticles(serverArticles)
+      setIsSwitchingFeed(false)
+      if (serverArticles.length > 0) await saveArticles(serverArticles)
+    } catch {
+      const feedUrls = new Set(categoryObj.feeds.map(f => f.xmlUrl))
+      const all = await getArticles()
+      if (currentId !== requestIdRef.current) return
+      setIsSwitchingFeed(false)
+      const filtered = all
+        .filter(a => feedUrls.has(a.feedUrl))
+        .sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate))
+      setArticles(filtered)
+    }
   }, [feeds, createRequest, setArticles])
 
   // SWR 刷新:保留当前文章在屏上,后台抓数据 + 写 IDB,完成后从 IDB 重新加载
@@ -880,13 +881,22 @@ function App() {
     setIsRefreshing(true)
 
     try {
-      // 已缓存文章:无网络请求,直接从 IDB 重新加载
+      // 文章总计:以后端为准,IndexedDB 只做失败兜底
       if (selectedFeed.xmlUrl === 'cached') {
-        const cachedArticles = await getArticles()
-        if (currentId !== requestIdRef.current) return
-        if (cachedArticles.length > 0) {
-          const sorted = cachedArticles.sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate))
-          setArticles(sorted)
+        try {
+          const [stats, serverArticles] = await Promise.all([
+            fetchServerStats(),
+            fetchServerArticles(),
+          ])
+          if (currentId !== requestIdRef.current) return
+          setServerArticleCount(stats.articleCount || 0)
+          setSelectedFeed({ title: `文章总计 ${formatArticleCount(stats.articleCount)}`, xmlUrl: 'cached' })
+          setArticles(serverArticles)
+          if (serverArticles.length > 0) await saveArticles(serverArticles)
+        } catch {
+          const cachedArticles = await getArticles()
+          if (currentId !== requestIdRef.current) return
+          setArticles(cachedArticles)
         }
         return
       }
@@ -903,21 +913,17 @@ function App() {
       const result = await backgroundRefreshFeeds(feedList, currentId)
       if (!result || currentId !== requestIdRef.current) return
 
-      // 刷新完成,从 IDB 重新加载当前视图
+      // 刷新完成,从后端重新加载当前视图
       if (selectedFeed.xmlUrl?.startsWith('category:')) {
-        const categoryObj = feeds.find(c => c.category === selectedFeed.category)
-        if (!categoryObj) return
-        const feedUrls = new Set(categoryObj.feeds.map(f => f.xmlUrl))
-        const all = await getArticles()
+        const serverArticles = await fetchServerArticles({ category: selectedFeed.category })
         if (currentId !== requestIdRef.current) return
-        const filtered = all
-          .filter(a => feedUrls.has(a.feedUrl))
-          .sort((a, b) => new Date(b.pubDate) - new Date(a.pubDate))
-        setArticles(filtered)
+        setArticles(serverArticles)
+        if (serverArticles.length > 0) await saveArticles(serverArticles)
       } else {
-        const cachedArticles = await getArticles(selectedFeed.xmlUrl)
+        const serverArticles = await fetchServerArticles({ feedUrl: selectedFeed.xmlUrl })
         if (currentId !== requestIdRef.current) return
-        setArticles(cachedArticles)
+        setArticles(serverArticles)
+        if (serverArticles.length > 0) await saveArticles(serverArticles)
       }
 
       if (result.failedCount > 0) {
@@ -926,9 +932,9 @@ function App() {
     } finally {
       setIsRefreshing(false)
     }
-  }, [selectedFeed, feeds, createRequest, backgroundRefreshFeeds, setArticles])
+  }, [selectedFeed, feeds, createRequest, backgroundRefreshFeeds, setArticles, setServerArticleCount])
 
-  // 标记当前订阅源(或 "已缓存文章" / 分类视图下所有 feed)的未读文章为已读
+  // 标记当前订阅源(或 "文章总计" / 分类视图下所有 feed)的未读文章为已读
   // 直接从 unreadByFeed 里取 key,不需要回头扫 articles
   const handleMarkAllAsRead = useCallback(() => {
     const isAll = selectedFeed?.xmlUrl === 'cached'
@@ -1006,6 +1012,20 @@ function App() {
     setReadingList(prev => prev.filter(a => getArticleKey(a) !== articleKey))
   }, [])
 
+  const hydrateSelectedArticle = useCallback((article) => {
+    if ((!article.content || !article.enclosure?.url) && article.id) {
+      fetchServerArticle(article.id)
+        .then((fullArticle) => {
+          setSelectedArticle((current) => (
+            current && getArticleKey(current) === getArticleKey(article)
+              ? { ...current, ...fullArticle }
+              : current
+          ))
+        })
+        .catch(() => {})
+    }
+  }, [])
+
   // 在阅读列表中选择文章
   const handleSelectFromReadingList = useCallback((article) => {
     setSelectedArticle(article)
@@ -1013,7 +1033,8 @@ function App() {
     setReaderVisible(true)
     // 不退出阅读列表视图,不切换到频道
     markAsRead(article)
-  }, [markAsRead])
+    hydrateSelectedArticle(article)
+  }, [markAsRead, hydrateSelectedArticle])
 
   // 从文章阅读器跳转到对应 feed 专栏
   const handleNavigateToFeed = useCallback((article) => {
@@ -1034,7 +1055,7 @@ function App() {
         }
       }
     }
-  }, [feeds, expandedCategories, handleSelectFeed, sidebarVisible])
+  }, [feeds, expandedCategories, handleSelectFeed, sidebarVisible, setExpandedCategories])
 
   const handleImportOPML = useCallback(async (event) => {
     const file = event.target.files[0]
@@ -1106,7 +1127,8 @@ function App() {
     setShowOriginal(false)
     setReaderVisible(true)
     markAsRead(article)
-  }, [markAsRead])
+    hydrateSelectedArticle(article)
+  }, [markAsRead, hydrateSelectedArticle])
 
   // Ask Cat 里点击引用时,打开对应文章
   // 不动 selectedFeed,让 Reader 直接展示这篇(相当于从聊天抽屉"插入阅读")
@@ -1154,24 +1176,30 @@ function App() {
   // ============ 键盘快捷键 ============
 
   const handleNextArticle = useCallback(() => {
-    if (!filteredArticles.length) return
+    if (!activeNavigationArticles.length) return
     const currentIdx = selectedArticle
-      ? filteredArticles.findIndex(a => getArticleKey(a) === getArticleKey(selectedArticle))
+      ? activeNavigationArticles.findIndex(a => getArticleKey(a) === getArticleKey(selectedArticle))
       : -1
-    const nextIdx = Math.min(filteredArticles.length - 1, currentIdx + 1)
-    const next = filteredArticles[nextIdx]
-    if (next && next !== selectedArticle) handleSelectArticle(next)
-  }, [filteredArticles, selectedArticle, handleSelectArticle])
+    const nextIdx = Math.min(activeNavigationArticles.length - 1, currentIdx + 1)
+    const next = activeNavigationArticles[nextIdx]
+    if (next && next !== selectedArticle) {
+      if (showReadingList) handleSelectFromReadingList(next)
+      else handleSelectArticle(next)
+    }
+  }, [activeNavigationArticles, selectedArticle, showReadingList, handleSelectFromReadingList, handleSelectArticle])
 
   const handlePrevArticle = useCallback(() => {
-    if (!filteredArticles.length) return
+    if (!activeNavigationArticles.length) return
     const currentIdx = selectedArticle
-      ? filteredArticles.findIndex(a => getArticleKey(a) === getArticleKey(selectedArticle))
+      ? activeNavigationArticles.findIndex(a => getArticleKey(a) === getArticleKey(selectedArticle))
       : 0
     const prevIdx = Math.max(0, currentIdx - 1)
-    const prev = filteredArticles[prevIdx]
-    if (prev && prev !== selectedArticle) handleSelectArticle(prev)
-  }, [filteredArticles, selectedArticle, handleSelectArticle])
+    const prev = activeNavigationArticles[prevIdx]
+    if (prev && prev !== selectedArticle) {
+      if (showReadingList) handleSelectFromReadingList(prev)
+      else handleSelectArticle(prev)
+    }
+  }, [activeNavigationArticles, selectedArticle, showReadingList, handleSelectFromReadingList, handleSelectArticle])
 
   // v1 的 m 等同点击该文章(markAsRead 是单向的,"标记为未读"产品功能单独做)
   const handleToggleReadSelected = useCallback(() => {
@@ -1211,7 +1239,7 @@ function App() {
     { key: 'Escape',  group: '视图', description: '关闭 / 退出',     handler: handleEscape },
 
     // 跳转(chord)
-    { key: 'g a',     group: '跳转', description: '已缓存文章',     handler: handleSelectAll },
+    { key: 'g a',     group: '跳转', description: '文章总计',       handler: handleSelectAll },
     { key: 'g r',     group: '跳转', description: '阅读列表',       handler: () => { if (!showReadingList) handleToggleReadingList() } },
     { key: 'g s',     group: '跳转', description: '聚焦侧栏搜索',   handler: handleFocusSidebarSearch },
 
@@ -1222,7 +1250,7 @@ function App() {
   ], [
     handleNextArticle, handlePrevArticle, handleToggleReadSelected,
     handleToggleArticleBookmark, handleRefresh, handleMarkAllAsRead,
-    toggleFullscreen, toggleOriginal, showOriginal, handleEscape,
+    toggleFullscreen, handleEscape,
     handleSelectAll, handleToggleReadingList, showReadingList,
     handleFocusSidebarSearch, selectedArticle,
   ])
@@ -1271,6 +1299,7 @@ function App() {
             onSearchChange={setSearchQuery}
             unreadCounts={unreadCounts}
             dataReady={dataReady}
+            articleCount={serverArticleCount}
             readingListCount={readingList.length}
             showReadingList={showReadingList}
             onToggleReadingList={handleToggleReadingList}
@@ -1331,10 +1360,9 @@ function App() {
             onToggleReadingList={handleToggleArticleBookmark}
             onNavigateToFeed={handleNavigateToFeed}
             selectedFeed={selectedFeed}
-            feedIntro={selectedFeed?.xmlUrl ? feedIntros[selectedFeed.xmlUrl]?.content || '' : ''}
+            feedIntro={selectedFeed?.xmlUrl ? serverFeedIntros[selectedFeed.xmlUrl]?.content || '' : ''}
             feedIntroStatus={feedIntroStatus}
             feedIntroError={feedIntroError}
-            onOpenAskCatSettings={() => setIsAskCatOpen(true)}
           />
         )}
       </div>

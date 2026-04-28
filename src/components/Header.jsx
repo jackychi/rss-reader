@@ -61,15 +61,20 @@ export default function Header({
   const [pairingMode, setPairingMode] = useState(false)
   const [pairingInput, setPairingInput] = useState('')
   const [copyFeedback, setCopyFeedback] = useState(false)
-  const [syncIdDraft, setSyncIdDraft] = useState(syncId || '')
-
-  // 外部 syncId prop 变化时(比如同步完成、disable 等),重置 draft 与之一致
-  useEffect(() => {
-    setSyncIdDraft(syncId || '')
-  }, [syncId])
-
+  const [syncIdDraftState, setSyncIdDraftState] = useState(() => ({
+    baseSyncId: syncId || '',
+    value: syncId || '',
+  }))
+  const currentSyncId = syncId || ''
+  const syncIdDraft = syncIdDraftState.baseSyncId === currentSyncId
+    ? syncIdDraftState.value
+    : currentSyncId
   const syncIdDraftTrimmed = syncIdDraft.trim()
-  const isSyncIdDirty = syncIdDraftTrimmed.length > 0 && syncIdDraftTrimmed !== (syncId || '')
+  const isSyncIdDirty = syncIdDraftTrimmed.length > 0 && syncIdDraftTrimmed !== currentSyncId
+
+  const setSyncIdDraft = (value) => {
+    setSyncIdDraftState({ baseSyncId: currentSyncId, value })
+  }
 
   const handleSaveSyncId = () => {
     if (!isSyncIdDirty) return

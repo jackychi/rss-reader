@@ -10,6 +10,7 @@ import {
   buildMessages,
   callLLM,
 } from '../utils/askCat'
+import { CATREADER_API_URL } from '../utils/constants'
 
 // 起手建议,空对话时展示。覆盖三类典型用法:
 //   全局浏览(1/2)、分类视图(3)、单篇操作(4/5,需要先在 Reader 里打开文章)
@@ -102,6 +103,8 @@ export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticl
   const [messages, setMessages] = useState([]) // {role: 'user'|'assistant', content, isError?}
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [settingsSaveStatus, setSettingsSaveStatus] = useState('idle')
+  const [settingsSaveError, setSettingsSaveError] = useState('')
   const [contextByIdRef] = useState(() => ({ current: new Map() }))
   const [contextByLinkRef] = useState(() => ({ current: new Map() }))
   const [drawerWidth, setDrawerWidth] = useState(() => getStoredDrawerWidth())
@@ -188,10 +191,33 @@ export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticl
     }
   }, [isOpen, showSettings])
 
-  const handleSaveSettings = () => {
-    const saved = saveLLMConfig(draft)
-    setConfig(saved)
-    setShowSettings(false)
+  const handleSaveSettings = async () => {
+    const clean = {
+      baseUrl: (draft.baseUrl || '').trim().replace(/\/+$/, ''),
+      apiKey: (draft.apiKey || '').trim(),
+      model: (draft.model || '').trim(),
+      contextSize: Math.max(5, Math.min(200, Number(draft.contextSize) || 30)),
+    }
+    setSettingsSaveStatus('saving')
+    setSettingsSaveError('')
+    try {
+      const res = await fetch(`${CATREADER_API_URL}/api/admin/llm-config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(clean),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || `HTTP ${res.status}`)
+      }
+      const saved = saveLLMConfig(clean)
+      setConfig(saved)
+      setSettingsSaveStatus('saved')
+      setShowSettings(false)
+    } catch (err) {
+      setSettingsSaveStatus('error')
+      setSettingsSaveError(err?.message || '保存配置失败')
+    }
   }
 
   // 核心:给定 question + 显式 history → 调 LLM → 把 assistant 回复 append 到 messages
@@ -395,7 +421,9 @@ export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticl
           draft={draft}
           onChange={setDraft}
           onSave={handleSaveSettings}
-          onCancel={() => { setDraft(config); setShowSettings(false) }}
+          onCancel={() => { setDraft(config); setSettingsSaveError(''); setSettingsSaveStatus('idle'); setShowSettings(false) }}
+          saveStatus={settingsSaveStatus}
+          saveError={settingsSaveError}
         />
       ) : (
         <>
@@ -618,12 +646,13 @@ function MessageBubble({ message, articleLinks, index, onRetry, isLoading }) {
   )
 }
 
-function SettingsPanel({ draft, onChange, onSave, onCancel }) {
+function SettingsPanel({ draft, onChange, onSave, onCancel, saveStatus, saveError }) {
   const update = (field) => (e) => onChange({ ...draft, [field]: e.target.value })
+  const saving = saveStatus === 'saving'
   return (
     <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '12px' }}>
       <div style={{ color: 'var(--text-secondary)', lineHeight: 1.5, backgroundColor: 'var(--bg-secondary)', padding: '8px', borderRadius: '4px' }}>
-        支持 OpenAI 兼容格式:MiniMax / OpenAI / DeepSeek / Qwen / Moonshot / Groq / Together 等。Anthropic (Claude) 原生不支持浏览器直连。API Key 仅存本地 localStorage。
+        支持 OpenAI 兼容格式:MiniMax / OpenAI / DeepSeek / Qwen / Moonshot / Groq / Together 等。保存会写入本机 localStorage,并通过后端写入 .env.local。
       </div>
 
       <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -685,19 +714,29 @@ function SettingsPanel({ draft, onChange, onSave, onCancel }) {
         </span>
       </label>
 
+      {saveError && (
+        <div style={{ color: '#b91c1c', lineHeight: 1.5 }}>
+          保存 .env.local 失败:{saveError}
+        </div>
+      )}
+
       <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
         <button
           onClick={onSave}
+          disabled={saving}
           style={{
             flex: 1, padding: '8px', border: 'none', borderRadius: '4px',
-            backgroundColor: 'var(--accent-color)', color: '#fff', cursor: 'pointer', fontSize: '13px', fontWeight: 500,
+            backgroundColor: 'var(--accent-color)', color: '#fff', cursor: saving ? 'default' : 'pointer', fontSize: '13px', fontWeight: 500,
+            opacity: saving ? 0.65 : 1,
           }}
-        >保存</button>
+        >{saving ? '保存中...' : '保存'}</button>
         <button
           onClick={onCancel}
+          disabled={saving}
           style={{
             flex: 1, padding: '8px', border: '1px solid var(--border-color)', borderRadius: '4px',
-            backgroundColor: 'transparent', color: 'var(--text-primary)', cursor: 'pointer', fontSize: '13px',
+            backgroundColor: 'transparent', color: 'var(--text-primary)', cursor: saving ? 'default' : 'pointer', fontSize: '13px',
+            opacity: saving ? 0.65 : 1,
           }}
         >取消</button>
       </div>

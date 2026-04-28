@@ -56,10 +56,11 @@ describe('Sidebar', () => {
     expect(searchInput).toBeInTheDocument()
   })
 
-  it('should render "已缓存文章" button', () => {
-    render(<Sidebar {...defaultProps} />)
+  it('should render total article count button', () => {
+    render(<Sidebar {...defaultProps} articleCount={9981} />)
 
-    expect(screen.getByText('已缓存文章')).toBeInTheDocument()
+    expect(screen.getByText('文章总计')).toBeInTheDocument()
+    expect(screen.getByText('9,981')).toBeInTheDocument()
   })
 
   it('should call onSearchChange when search input changes', () => {
@@ -92,10 +93,10 @@ describe('Sidebar', () => {
     )
   })
 
-  it('should call onSelectAll when "已缓存文章" is clicked', () => {
-    render(<Sidebar {...defaultProps} />)
+  it('should call onSelectAll when total article count is clicked', () => {
+    render(<Sidebar {...defaultProps} articleCount={9981} />)
 
-    const allArticles = screen.getByText('已缓存文章')
+    const allArticles = screen.getByText('文章总计')
     fireEvent.click(allArticles)
 
     expect(defaultProps.onSelectAll).toHaveBeenCalled()

@@ -1,16 +1,62 @@
-# React + Vite
+# CatReader
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+RSS reader with a React frontend and a Go + SQLite backend.
 
-Currently, two official plugins are available:
+## Local Config
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+Create local env files from the examples:
 
-## React Compiler
+```bash
+cp .env.local.example .env.local
+cp backend/.env.local.example backend/.env.local
+```
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Put the admin AskCat config in the root `.env.local`:
 
-## Expanding the ESLint configuration
+```bash
+VITE_ASKCAT_BASE_URL=https://api.openai.com/v1
+VITE_ASKCAT_API_KEY=...
+VITE_ASKCAT_MODEL=gpt-4.1-mini
+VITE_ASKCAT_CONTEXT_SIZE=30
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+Put the server-side LLM config in `backend/.env.local`:
+
+```bash
+CATREADER_LLM_BASE_URL=https://api.openai.com/v1
+CATREADER_LLM_API_KEY=...
+CATREADER_LLM_MODEL=gpt-4.1-mini
+```
+
+`VITE_*` values are exposed to the browser, so keep AskCat as an admin/local
+feature. Feed introductions use the backend `CATREADER_LLM_*` values and are
+not generated with browser credentials.
+
+In local development, saving AskCat settings in the UI also asks the backend to
+write both `.env.local` and `backend/.env.local`. The backend admin write API is
+restricted to localhost requests.
+
+## Run
+
+Start the backend:
+
+```bash
+cd backend
+go run ./cmd/catreader-server
+```
+
+Start the frontend in another terminal:
+
+```bash
+npm run dev
+```
+
+If you edit `.env.local`, restart the relevant dev server.
+
+## Checks
+
+```bash
+cd backend && go test ./...
+npm run lint
+npm test -- --run
+```

@@ -67,17 +67,17 @@ export default function ArticleList({
             </button>
             <button
               onClick={onRefresh}
-              disabled={!selectedFeed || selectedFeed.xmlUrl === 'cached' || isRefreshing || loading}
+              disabled={!selectedFeed || isRefreshing || loading}
               style={{
                 padding: '6px',
                 borderRadius: '6px',
                 backgroundColor: 'transparent',
                 border: 'none',
-                cursor: (!selectedFeed || selectedFeed.xmlUrl === 'cached' || isRefreshing || loading) ? 'not-allowed' : 'pointer',
+                cursor: (!selectedFeed || isRefreshing || loading) ? 'not-allowed' : 'pointer',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                opacity: (!selectedFeed || selectedFeed.xmlUrl === 'cached' || isRefreshing || loading) ? 0.4 : 1,
+                opacity: (!selectedFeed || isRefreshing || loading) ? 0.4 : 1,
               }}
               title="刷新"
             >

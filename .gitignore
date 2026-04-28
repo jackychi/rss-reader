@@ -26,6 +26,12 @@ dist-ssr
 # Test coverage
 coverage
 
+# Local backend runtime data
+data/
+*.db
+*.db-shm
+*.db-wal
+
 # Local npm lockfile
 package-lock.json
 

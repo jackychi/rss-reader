@@ -149,8 +149,7 @@ export default function Reader({
   selectedFeed = null,
   feedIntro = '',
   feedIntroStatus = 'idle',
-  feedIntroError = null,
-  onOpenAskCatSettings
+  feedIntroError = null
 }) {
   const [isPlaying, setIsPlaying] = useState(false)
   const [audioProgress, setAudioProgress] = useState(initialAudioPosition)
@@ -854,17 +853,8 @@ export default function Reader({
                 />
               )}
 
-              {feedIntroStatus === 'unconfigured' && (
-                <div className="feed-intro-hint">
-                  <p>配置 Ask Cat 的大模型后，点击订阅源会自动生成栏目介绍。</p>
-                  <button type="button" onClick={onOpenAskCatSettings}>
-                    打开 Ask Cat 设置
-                  </button>
-                </div>
-              )}
-
               {feedIntroStatus === 'empty' && (
-                <p className="feed-intro-muted">这个栏目还没有可分析的缓存文章，刷新或等待文章加载后再试。</p>
+                <p className="feed-intro-muted">后端还没有返回这个栏目的介绍，生成完成后会自动显示。</p>
               )}
 
               {feedIntroStatus === 'error' && (

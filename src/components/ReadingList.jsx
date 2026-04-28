@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { FileText, Link2, BookmarkCheck, MoreHorizontal, Copy, Check, Send } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
+import { getArticleKey } from '../utils/articleKey'
 
 /**
  * ReadingList 组件 - 阅读列表管理
@@ -15,6 +16,14 @@ export default function ReadingList({
   formatDate,
   selectedArticle
 }) {
+  const rowRefs = useRef(new Map())
+
+  useEffect(() => {
+    if (!selectedArticle) return
+    const row = rowRefs.current.get(getArticleKey(selectedArticle))
+    if (row) row.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [selectedArticle])
+
   if (articles.length === 0) {
     return (
       <main className="article-list w-[380px] flex flex-col overflow-hidden shrink-0">
@@ -48,8 +57,8 @@ export default function ReadingList({
 
       <div className="flex-1 overflow-y-auto">
         {articles.map((article) => {
-          const articleKey = `${article.feedUrl}-${article.guid || article.link}`
-          const selectedKey = selectedArticle ? `${selectedArticle.feedUrl}-${selectedArticle.guid || selectedArticle.link}` : null
+          const articleKey = getArticleKey(article)
+          const selectedKey = selectedArticle ? getArticleKey(selectedArticle) : null
           const isSelected = articleKey === selectedKey
 
           return (
@@ -62,6 +71,10 @@ export default function ReadingList({
               onRemoveArticle={onRemoveArticle}
               getArticleImage={getArticleImage}
               formatDate={formatDate}
+              rowRef={(node) => {
+                if (node) rowRefs.current.set(articleKey, node)
+                else rowRefs.current.delete(articleKey)
+              }}
             />
           )
         })}
@@ -79,6 +92,7 @@ function ReadingListCard({
   onRemoveArticle,
   getArticleImage,
   formatDate,
+  rowRef,
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -108,6 +122,7 @@ function ReadingListCard({
 
   return (
     <div
+      ref={rowRef}
       onClick={() => onSelectArticle(article)}
       style={{
         padding: '14px 16px',

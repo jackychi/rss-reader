@@ -16,6 +16,7 @@ export default function Sidebar({
   onSearchChange,
   unreadCounts,
   dataReady = true,
+  articleCount = 0,
   readingListCount = 0,
   showReadingList = false,
   onToggleReadingList
@@ -34,6 +35,7 @@ export default function Sidebar({
   }
 
   const filteredFeeds = filterFeeds(feeds)
+  const formattedArticleCount = articleCount.toLocaleString('en-US')
 
   // 计算总未读数 - 只计算每个feed的未读数，不包含分类的未读数（避免重复相加）
   const totalUnread = feeds.reduce((total, category) => {
@@ -89,16 +91,21 @@ export default function Sidebar({
         </div>
       </div>
 
-      {/* 已缓存文章 */}
+      {/* 文章总计 */}
       <div style={{ padding: '0 12px 12px' }}>
         <div
           onClick={onSelectAll}
           className={`sidebar-item ${(selectedFeed?.xmlUrl === 'cached') || (!selectedFeed && !showReadingList) ? 'active' : ''}`}
           style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderRadius: '6px' }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <FileText size={16} />
-            <span>已缓存文章</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+            <FileText size={16} style={{ flexShrink: 0 }} />
+            <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              文章总计
+              <span style={{ fontSize: '10px', color: 'var(--text-muted)', lineHeight: 1, transform: 'translateY(1px)' }}>
+                {formattedArticleCount}
+              </span>
+            </span>
           </div>
           {dataReady && totalUnread > 0 && (
             <span style={{

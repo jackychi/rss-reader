@@ -13,11 +13,13 @@ import { getArticleKey } from './articleKey'
 
 const CONFIG_KEY = 'rss-reader-llm-config'
 
+const env = import.meta.env || {}
+
 export const DEFAULT_CONFIG = {
-  baseUrl: '',
-  apiKey: '',
-  model: '',
-  contextSize: 30,
+  baseUrl: (env.VITE_ASKCAT_BASE_URL || '').trim().replace(/\/+$/, ''),
+  apiKey: (env.VITE_ASKCAT_API_KEY || '').trim(),
+  model: (env.VITE_ASKCAT_MODEL || '').trim(),
+  contextSize: Math.max(5, Math.min(200, Number(env.VITE_ASKCAT_CONTEXT_SIZE) || 30)),
 }
 
 // ============ 配置管理 ============

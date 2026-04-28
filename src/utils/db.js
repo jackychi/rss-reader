@@ -118,6 +118,27 @@ export async function getArticles(feedUrl = null, limit = null) {
   }
 }
 
+export async function getArticleCount(feedUrl = null) {
+  try {
+    const db = await openDB()
+    const tx = db.transaction('articles', 'readonly')
+    const store = tx.objectStore('articles')
+    const source = feedUrl ? store.index('feedUrl') : store
+
+    return new Promise((resolve, reject) => {
+      const request = feedUrl
+        ? source.count(IDBKeyRange.only(feedUrl))
+        : source.count()
+
+      request.onsuccess = () => resolve(request.result || 0)
+      request.onerror = () => reject(request.error)
+    })
+  } catch (error) {
+    console.error('[DB] Failed to count articles:', error)
+    return 0
+  }
+}
+
 // 保存订阅源
 export async function saveFeeds(feeds) {
   try {
