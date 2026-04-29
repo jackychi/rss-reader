@@ -9,5 +9,6 @@ const __dirname = path.dirname(__filename)
 
 // https://vite.dev/config/
 export default defineConfig({
+  envDir: path.resolve(__dirname, 'backend'),
   plugins: [react(), tailwindcss()],
 })

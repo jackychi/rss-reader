@@ -5,6 +5,7 @@ import DOMPurify from 'dompurify'
 import {
   getLLMConfig,
   fetchLLMConfig,
+  saveLLMConfig,
   isConfigValid,
   buildContextArticles,
   buildMessages,
@@ -105,6 +106,8 @@ export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticl
   const [isLoading, setIsLoading] = useState(false)
   const [configLoadStatus, setConfigLoadStatus] = useState('idle')
   const [configLoadError, setConfigLoadError] = useState('')
+  const [configSaveStatus, setConfigSaveStatus] = useState('idle')
+  const [configSaveError, setConfigSaveError] = useState('')
   const [contextByIdRef] = useState(() => ({ current: new Map() }))
   const [contextByLinkRef] = useState(() => ({ current: new Map() }))
   const [drawerWidth, setDrawerWidth] = useState(() => getStoredDrawerWidth())
@@ -221,6 +224,21 @@ export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticl
   const handleReloadSettings = () => {
     loadConfigFromBackend()
   }
+
+  const handleSaveSettings = useCallback(async () => {
+    setConfigSaveStatus('saving')
+    setConfigSaveError('')
+    try {
+      const saved = await saveLLMConfig(CATREADER_API_URL, draft)
+      setConfig(saved)
+      setDraft(saved)
+      setConfigSaveStatus('saved')
+      setTimeout(() => setConfigSaveStatus('idle'), 1500)
+    } catch (err) {
+      setConfigSaveStatus('error')
+      setConfigSaveError(err?.message || '保存配置失败')
+    }
+  }, [draft])
 
   // 核心:给定 question + 显式 history → 调 LLM → 把 assistant 回复 append 到 messages
   // 用户说话那一条不在这函数职责范围,调用方自己 setMessages 先加 user 条目
@@ -421,10 +439,14 @@ export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticl
       {showSettings ? (
         <SettingsPanel
           draft={draft}
+          onDraftChange={setDraft}
           onReload={handleReloadSettings}
+          onSave={handleSaveSettings}
           onClose={() => { setDraft(config); setConfigLoadError(''); setConfigLoadStatus('idle'); setShowSettings(false) }}
           loadStatus={configLoadStatus}
           loadError={configLoadError}
+          saveStatus={configSaveStatus}
+          saveError={configSaveError}
         />
       ) : (
         <>
@@ -647,8 +669,9 @@ function MessageBubble({ message, articleLinks, index, onRetry, isLoading }) {
   )
 }
 
-function SettingsPanel({ draft, onReload, onClose, loadStatus, loadError }) {
+function SettingsPanel({ draft, onDraftChange, onReload, onSave, onClose, loadStatus, loadError, saveStatus, saveError }) {
   const loading = loadStatus === 'loading'
+  const saving = saveStatus === 'saving'
   const fieldStyle = {
     padding: '6px 8px',
     border: '1px solid var(--border-color)',
@@ -704,12 +727,12 @@ function SettingsPanel({ draft, onReload, onClose, loadStatus, loadError }) {
           type="range"
           min="5"
           max="200"
+          step="5"
           value={draft.contextSize}
-          readOnly
-          disabled
+          onChange={(e) => onDraftChange((prev) => ({ ...prev, contextSize: Number(e.target.value) }))}
         />
         <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>
-          Context 文章数来自配置文件中的 VITE_ASKCAT_CONTEXT_SIZE,未配置时默认 30。
+          保存后写入 .env.local 中的 VITE_ASKCAT_CONTEXT_SIZE。
         </span>
       </label>
 
@@ -719,23 +742,38 @@ function SettingsPanel({ draft, onReload, onClose, loadStatus, loadError }) {
         </div>
       )}
 
+      {saveError && (
+        <div style={{ color: '#b91c1c', lineHeight: 1.5 }}>
+          保存 .env.local 失败:{saveError}
+        </div>
+      )}
+
       <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
         <button
-          onClick={onReload}
-          disabled={loading}
+          onClick={onSave}
+          disabled={loading || saving}
           style={{
             flex: 1, padding: '8px', border: 'none', borderRadius: '4px',
-            backgroundColor: 'var(--accent-color)', color: '#fff', cursor: loading ? 'default' : 'pointer', fontSize: '13px', fontWeight: 500,
-            opacity: loading ? 0.65 : 1,
+            backgroundColor: 'var(--accent-color)', color: '#fff', cursor: loading || saving ? 'default' : 'pointer', fontSize: '13px', fontWeight: 500,
+            opacity: loading || saving ? 0.65 : 1,
+          }}
+        >{saving ? '保存中...' : saveStatus === 'saved' ? '已保存' : '保存'}</button>
+        <button
+          onClick={onReload}
+          disabled={loading || saving}
+          style={{
+            flex: 1, padding: '8px', border: 'none', borderRadius: '4px',
+            backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', cursor: loading || saving ? 'default' : 'pointer', fontSize: '13px', fontWeight: 500,
+            opacity: loading || saving ? 0.65 : 1,
           }}
         >{loading ? '读取中...' : '重新读取'}</button>
         <button
           onClick={onClose}
-          disabled={loading}
+          disabled={loading || saving}
           style={{
             flex: 1, padding: '8px', border: '1px solid var(--border-color)', borderRadius: '4px',
-            backgroundColor: 'transparent', color: 'var(--text-primary)', cursor: loading ? 'default' : 'pointer', fontSize: '13px',
-            opacity: loading ? 0.65 : 1,
+            backgroundColor: 'transparent', color: 'var(--text-primary)', cursor: loading || saving ? 'default' : 'pointer', fontSize: '13px',
+            opacity: loading || saving ? 0.65 : 1,
           }}
         >关闭</button>
       </div>

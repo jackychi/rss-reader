@@ -38,7 +38,7 @@ func TestUpdateEnvFilePreservesUnknownValuesAndUpdatesKeys(t *testing.T) {
 	}
 }
 
-func TestReadLocalLLMConfigUsesRootEnvBeforeBackendEnv(t *testing.T) {
+func TestReadLocalLLMConfigUsesBackendEnv(t *testing.T) {
 	tmp := t.TempDir()
 	if err := os.Mkdir(filepath.Join(tmp, "src"), 0o755); err != nil {
 		t.Fatal(err)
@@ -46,20 +46,11 @@ func TestReadLocalLLMConfigUsesRootEnvBeforeBackendEnv(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(tmp, "backend"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(tmp, ".env.local"), []byte(strings.Join([]string{
-		"CATREADER_LLM_BASE_URL=https://root.example/v1",
-		`CATREADER_LLM_API_KEY="root key"`,
-		"CATREADER_LLM_MODEL=root-model",
+	if err := os.WriteFile(filepath.Join(tmp, "backend", ".env.local"), []byte(strings.Join([]string{
+		"VITE_ASKCAT_BASE_URL=https://root.example/v1",
+		`VITE_ASKCAT_API_KEY="root key"`,
 		"VITE_ASKCAT_MODEL=frontend-model",
 		"VITE_ASKCAT_CONTEXT_SIZE=45",
-		"",
-	}, "\n")), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(tmp, "backend", ".env.local"), []byte(strings.Join([]string{
-		"CATREADER_LLM_BASE_URL=https://backend.example/v1",
-		"CATREADER_LLM_API_KEY=backend-key",
-		"CATREADER_LLM_MODEL=backend-model",
 		"",
 	}, "\n")), 0o600); err != nil {
 		t.Fatal(err)
@@ -73,10 +64,10 @@ func TestReadLocalLLMConfigUsesRootEnvBeforeBackendEnv(t *testing.T) {
 	}
 
 	if cfg.BaseURL != "https://root.example/v1" {
-		t.Fatalf("BaseURL = %q, want root value", cfg.BaseURL)
+		t.Fatalf("BaseURL = %q, want backend env value", cfg.BaseURL)
 	}
 	if cfg.APIKey != "root key" {
-		t.Fatalf("APIKey = %q, want unquoted root value", cfg.APIKey)
+		t.Fatalf("APIKey = %q, want unquoted backend env value", cfg.APIKey)
 	}
 	if cfg.Model != "frontend-model" {
 		t.Fatalf("Model = %q, want VITE value before CATREADER fallback", cfg.Model)

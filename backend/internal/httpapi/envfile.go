@@ -10,47 +10,45 @@ import (
 )
 
 func writeLocalLLMEnvFiles(req llmConfigRequest) error {
-	rootEnv, backendEnv := localEnvFilePaths()
-	// 前端 Ask Cat 和后端栏目介绍生成共用同一组 LLM 配置，但环境变量名不同。
-	if err := updateEnvFile(rootEnv, map[string]string{
+	envPath := localEnvFilePath()
+	// 单一配置文件:前端 Ask Cat 使用 VITE_*，后端栏目介绍读取时也会回退到同一组值。
+	return updateEnvFile(envPath, map[string]string{
 		"VITE_ASKCAT_BASE_URL":     strings.TrimRight(req.BaseURL, "/"),
 		"VITE_ASKCAT_API_KEY":      req.APIKey,
 		"VITE_ASKCAT_MODEL":        req.Model,
 		"VITE_ASKCAT_CONTEXT_SIZE": strconv.Itoa(normalizeContextSize(req.ContextSize)),
-	}); err != nil {
-		return err
-	}
-	return updateEnvFile(backendEnv, map[string]string{
-		"CATREADER_LLM_BASE_URL": strings.TrimRight(req.BaseURL, "/"),
-		"CATREADER_LLM_API_KEY":  req.APIKey,
-		"CATREADER_LLM_MODEL":    req.Model,
 	})
 }
 
-func localEnvFilePaths() (string, string) {
-	// API 可能从仓库根目录或 backend 目录启动，这里按当前工作目录推断两个配置文件位置。
+func localEnvFilePath() string {
+	// API 可能从仓库根目录或 backend 目录启动，这里始终返回 backend/.env.local。
 	cwd, err := os.Getwd()
 	if err != nil {
-		return ".env.local", filepath.Join("backend", ".env.local")
+		return ".env.local"
 	}
 	if exists(filepath.Join(cwd, "src")) && exists(filepath.Join(cwd, "backend")) {
-		return filepath.Join(cwd, ".env.local"), filepath.Join(cwd, "backend", ".env.local")
+		return filepath.Join(cwd, "backend", ".env.local")
 	}
-	return filepath.Join(filepath.Dir(cwd), ".env.local"), filepath.Join(cwd, ".env.local")
+	if filepath.Base(cwd) == "backend" {
+		return filepath.Join(cwd, ".env.local")
+	}
+	parentBackend := filepath.Join(filepath.Dir(cwd), "backend", ".env.local")
+	if exists(parentBackend) {
+		return parentBackend
+	}
+	return filepath.Join(cwd, ".env.local")
 }
 
 func readLocalLLMConfig() (llmConfigRequest, error) {
-	rootEnv, backendEnv := localEnvFilePaths()
+	envPath := localEnvFilePath()
 	values := map[string]string{}
-	for _, path := range []string{rootEnv, backendEnv} {
-		fileValues, err := readEnvFileValues(path)
-		if err != nil {
-			return llmConfigRequest{}, err
-		}
-		for key, value := range fileValues {
-			if values[key] == "" {
-				values[key] = value
-			}
+	fileValues, err := readEnvFileValues(envPath)
+	if err != nil {
+		return llmConfigRequest{}, err
+	}
+	for key, value := range fileValues {
+		if values[key] == "" {
+			values[key] = value
 		}
 	}
 

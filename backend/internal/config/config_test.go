@@ -8,21 +8,27 @@ import (
 
 func TestFromEnvLoadsEnvLocalWithoutOverridingEnvironment(t *testing.T) {
 	tmp := t.TempDir()
+	if err := os.Mkdir(filepath.Join(tmp, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(tmp, "backend"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	t.Chdir(tmp)
 	t.Setenv("CATREADER_LLM_MODEL", "from-environment")
 
 	envLocal := []byte(`
 CATREADER_ADDR=:9090
-CATREADER_LLM_BASE_URL="https://example.com/v1"
-CATREADER_LLM_API_KEY='local-key'
-CATREADER_LLM_MODEL=from-file
+VITE_ASKCAT_BASE_URL="https://example.com/v1"
+VITE_ASKCAT_API_KEY='local-key'
+VITE_ASKCAT_MODEL=from-file
 CATREADER_USER_DB_HOST=db.example.com
 CATREADER_USER_DB_PORT=3307
 CATREADER_USER_DB_NAME=catreader
 CATREADER_USER_DB_USER=catreader_user
 CATREADER_USER_DB_PASSWORD='db secret'
 `)
-	if err := os.WriteFile(filepath.Join(tmp, ".env.local"), envLocal, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(tmp, "backend", ".env.local"), envLocal, 0o600); err != nil {
 		t.Fatal(err)
 	}
 

@@ -39,7 +39,7 @@ func (c UserDBConfig) Configured() bool {
 }
 
 func FromEnv() Config {
-	// 先加载本地 .env.local，再读取环境变量；显式环境变量始终优先。
+	// 先加载 backend/.env.local，再读取环境变量；显式环境变量始终优先。
 	loadEnvLocal()
 
 	return Config{
@@ -57,9 +57,9 @@ func FromEnv() Config {
 		RefreshInterval:          envDuration("CATREADER_REFRESH_INTERVAL", 10*time.Minute),
 		FetchTimeout:             envDuration("CATREADER_FETCH_TIMEOUT", 20*time.Second),
 		FetchConcurrency:         envInt("CATREADER_FETCH_CONCURRENCY", 5),
-		LLMBaseURL:               env("CATREADER_LLM_BASE_URL", ""),
-		LLMAPIKey:                env("CATREADER_LLM_API_KEY", ""),
-		LLMModel:                 env("CATREADER_LLM_MODEL", ""),
+		LLMBaseURL:               env("CATREADER_LLM_BASE_URL", env("VITE_ASKCAT_BASE_URL", "")),
+		LLMAPIKey:                env("CATREADER_LLM_API_KEY", env("VITE_ASKCAT_API_KEY", "")),
+		LLMModel:                 env("CATREADER_LLM_MODEL", env("VITE_ASKCAT_MODEL", "")),
 		FeedIntroRefreshInterval: envDuration("CATREADER_FEED_INTRO_REFRESH_INTERVAL", 7*24*time.Hour),
 		FeedIntroCheckInterval:   envDuration("CATREADER_FEED_INTRO_CHECK_INTERVAL", time.Hour),
 		FeedIntroConcurrency:     envInt("CATREADER_FEED_INTRO_CONCURRENCY", 2),
@@ -67,10 +67,25 @@ func FromEnv() Config {
 }
 
 func loadEnvLocal() {
-	// 支持从仓库根目录或 backend 目录启动服务，两种位置都尝试加载。
-	for _, path := range []string{".env.local", filepath.Join("backend", ".env.local")} {
-		_ = loadEnvFile(path)
+	_ = loadEnvFile(backendEnvPath())
+}
+
+func backendEnvPath() string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ".env.local"
 	}
+	if exists(filepath.Join(cwd, "src")) && exists(filepath.Join(cwd, "backend")) {
+		return filepath.Join(cwd, "backend", ".env.local")
+	}
+	if filepath.Base(cwd) == "backend" {
+		return filepath.Join(cwd, ".env.local")
+	}
+	parentBackend := filepath.Join(filepath.Dir(cwd), "backend", ".env.local")
+	if exists(parentBackend) {
+		return parentBackend
+	}
+	return filepath.Join(cwd, ".env.local")
 }
 
 func loadEnvFile(path string) error {
@@ -117,6 +132,11 @@ func env(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func envInt(key string, fallback int) int {

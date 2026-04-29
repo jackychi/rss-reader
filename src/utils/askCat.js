@@ -49,6 +49,25 @@ export async function fetchLLMConfig(apiBaseUrl, { signal } = {}) {
   return normalizeLLMConfig({ ...DEFAULT_CONFIG, ...data })
 }
 
+export async function saveLLMConfig(apiBaseUrl, config, { signal } = {}) {
+  const normalized = normalizeLLMConfig(config)
+  const res = await fetch(`${apiBaseUrl}/api/admin/llm-config`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(normalized),
+    signal,
+  })
+  if (!res.ok) {
+    let message = `HTTP ${res.status}`
+    try {
+      const data = await res.json()
+      message = data?.error || message
+    } catch { /* ignore */ }
+    throw new Error(message)
+  }
+  return normalizeLLMConfig({ ...normalized, ...(await res.json()) })
+}
+
 export function isConfigValid(config) {
   return !!(config?.baseUrl && config?.apiKey && config?.model)
 }
