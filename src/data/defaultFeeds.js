@@ -295,6 +295,7 @@ export const defaultFeeds = [
       { title: "游荡集", xmlUrl: "https://feed.xyzfm.space/6m6qmdfmaf6d" },
       { title: "古典不dan调", xmlUrl: "https://feed.xyzfm.space/64xxbj6nmcpe" },
       { title: "不合时宜", xmlUrl: "https://feed.xyzfm.space/ww7cqnybekty" },
+      { title: "无人知晓", xmlUrl: "https://feed.xyzfm.space/ypn9dydpbxpc" },
       {
         title: "MacTalk·夜航西飞",
         xmlUrl: "https://feed.xyzfm.space/9mkbwqtmr8ma",
