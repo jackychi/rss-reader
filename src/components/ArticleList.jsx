@@ -20,7 +20,10 @@ export default function ArticleList({
   onSearchChange,
   onMarkAllAsRead,
   onRefresh,
-  isRefreshing
+  isRefreshing,
+  onLoadMore,
+  hasMore,
+  isLoadingMore,
 }) {
   // 搜索框显示状态
   const [showSearch, setShowSearch] = useState(false)
@@ -29,12 +32,29 @@ export default function ArticleList({
   // 用 Map 而不是 useRef 为每个 row 单独存,避免随文章数增长的 ref 对象数量
   const rowRefs = useRef(new Map())
 
+  // 列表末尾的 sentinel:进入视野时触发 onLoadMore
+  // 用 IntersectionObserver 而非 onScroll 阈值——浏览器自动节流,且不会重复 fire
+  const sentinelRef = useRef(null)
+
   useEffect(() => {
     if (!selectedArticle) return
     const key = getArticleKey(selectedArticle)
     const row = rowRefs.current.get(key)
     if (row) row.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
   }, [selectedArticle])
+
+  // 搜索时禁用滚动加载:客户端搜索只搜已加载的部分,无限滚也匹配不到未加载的内容
+  useEffect(() => {
+    const target = sentinelRef.current
+    if (!target || !hasMore || !onLoadMore || searchQuery.trim()) return
+
+    const observer = new IntersectionObserver((entries) => {
+      if (entries[0]?.isIntersecting) onLoadMore()
+    }, { rootMargin: '200px' })
+
+    observer.observe(target)
+    return () => observer.disconnect()
+  }, [hasMore, onLoadMore, searchQuery, articles.length])
 
   return (
     <main className="article-list w-[380px] flex flex-col overflow-hidden shrink-0">
@@ -264,6 +284,19 @@ export default function ArticleList({
               </div>
             )
           })
+        )}
+
+        {/* 末尾 sentinel + 加载提示。搜索时不渲染(避免 observer 误触发) */}
+        {!loading && articles.length > 0 && !searchQuery.trim() && (
+          <div ref={sentinelRef} style={{ padding: '16px', display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'var(--text-muted)', fontSize: '12px' }}>
+            {isLoadingMore ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : hasMore ? (
+              <span>下拉加载更多</span>
+            ) : (
+              <span>没有更多了</span>
+            )}
+          </div>
         )}
       </div>
     </main>

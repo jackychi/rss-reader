@@ -51,7 +51,9 @@ function toParagraphHtml(text) {
     .join('')
 }
 
-const SERVER_ARTICLE_LIMIT = 500
+// 文章列表分页大小:首次加载和滚动加载更多都用这个
+// 避免一次性渲染上万条把页面卡死
+const ARTICLE_PAGE_SIZE = 200
 
 function formatArticleCount(count) {
   return Number(count || 0).toLocaleString('en-US')
@@ -75,7 +77,7 @@ async function fetchServerStats() {
   return res.json()
 }
 
-async function fetchServerArticles({ feedUrl = '', category = '', search = '', limit = SERVER_ARTICLE_LIMIT, offset = 0 } = {}) {
+async function fetchServerArticles({ feedUrl = '', category = '', search = '', limit = ARTICLE_PAGE_SIZE, offset = 0 } = {}) {
   const params = new URLSearchParams({
     limit: String(limit),
     offset: String(offset),
@@ -197,6 +199,11 @@ function App() {
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isSwitchingFeed, setIsSwitchingFeed] = useState(false)
+  // 分页状态:每次 select 重置,handleLoadMore 累加
+  // hasMore 用"本次返回 < PAGE_SIZE 即到底"判断,不需要后端 total
+  const [pageOffset, setPageOffset] = useState(0)
+  const [hasMore, setHasMore] = useState(false)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [articleSearchQuery, setArticleSearchQuery] = useState('')
   // 阅读列表状态
@@ -616,24 +623,12 @@ function App() {
     return () => { cancelled = true }
   }, [syncId])
 
-  // ============ 初始化 IndexedDB 缓存 ============
+  // ============ 启动时清理过期缓存 ============
+  // 不再 mount 时自动展示缓存文章——上万条一次性渲染会卡死页面。
+  // 等用户主动点 feed/category,handler 走分页拉取。
   useEffect(() => {
-    // 尝试加载缓存的文章
-    const loadCachedArticles = async () => {
-      try {
-        const cachedArticles = await getArticles()
-        if (cachedArticles.length > 0) {
-          console.log('[App] Loaded', cachedArticles.length, 'cached articles')
-          setArticles(cachedArticles)
-        }
-        // 清理过期缓存
-        await clearExpiredCache()
-      } catch (error) {
-        console.error('[App] Failed to load cached articles:', error)
-      }
-    }
-    loadCachedArticles()
-  }, [setArticles])
+    clearExpiredCache().catch((err) => console.error('[App] clearExpiredCache failed:', err))
+  }, [])
 
   // ============ 加载阅读列表 ============
   const loadReadingList = useCallback(async () => {
@@ -899,11 +894,15 @@ function App() {
     // 立即清空,防止上一个视图的旧文章残留在屏上
     setIsSwitchingFeed(true)
     setArticles([])
+    setPageOffset(0)
+    setHasMore(false)
 
     try {
       const serverArticles = await fetchServerArticles({ feedUrl: feed.xmlUrl })
       if (currentId !== requestIdRef.current) return
       setArticles(serverArticles)
+      setPageOffset(serverArticles.length)
+      setHasMore(serverArticles.length === ARTICLE_PAGE_SIZE)
       setIsSwitchingFeed(false)
       if (serverArticles.length > 0) {
         await saveArticles(serverArticles)
@@ -931,6 +930,8 @@ function App() {
     // 立即清空,防止上一个视图的旧文章残留在屏上
     setIsSwitchingFeed(true)
     setArticles([])
+    setPageOffset(0)
+    setHasMore(false)
 
     try {
       const [stats, serverArticles] = await Promise.all([
@@ -941,6 +942,8 @@ function App() {
       setServerArticleCount(stats.articleCount || 0)
       setSelectedFeed({ title: `文章总计 ${formatArticleCount(stats.articleCount)}`, xmlUrl: 'cached' })
       setArticles(serverArticles)
+      setPageOffset(serverArticles.length)
+      setHasMore(serverArticles.length === ARTICLE_PAGE_SIZE)
       setIsSwitchingFeed(false)
       if (serverArticles.length > 0) await saveArticles(serverArticles)
     } catch {
@@ -973,11 +976,15 @@ function App() {
     // 立即清空,防止上一个视图的旧文章残留在屏上
     setIsSwitchingFeed(true)
     setArticles([])
+    setPageOffset(0)
+    setHasMore(false)
 
     try {
       const serverArticles = await fetchServerArticles({ category: categoryName })
       if (currentId !== requestIdRef.current) return
       setArticles(serverArticles)
+      setPageOffset(serverArticles.length)
+      setHasMore(serverArticles.length === ARTICLE_PAGE_SIZE)
       setIsSwitchingFeed(false)
       if (serverArticles.length > 0) await saveArticles(serverArticles)
     } catch {
@@ -1000,6 +1007,13 @@ function App() {
     requestIdRef.current = currentId
     setIsRefreshing(true)
 
+    // 刷新等同重新拉第一页,把分页指针归零
+    const commitFirstPage = (serverArticles) => {
+      setArticles(serverArticles)
+      setPageOffset(serverArticles.length)
+      setHasMore(serverArticles.length === ARTICLE_PAGE_SIZE)
+    }
+
     try {
       // 文章总计:以后端为准,IndexedDB 只做失败兜底
       if (selectedFeed.xmlUrl === 'cached') {
@@ -1012,7 +1026,7 @@ function App() {
           if (currentId !== requestIdRef.current) return
           setServerArticleCount(stats.articleCount || 0)
           setSelectedFeed({ title: `文章总计 ${formatArticleCount(stats.articleCount)}`, xmlUrl: 'cached' })
-          setArticles(serverArticles)
+          commitFirstPage(serverArticles)
           if (serverArticles.length > 0) await saveArticles(serverArticles)
         } catch {
           const cachedArticles = await getArticles()
@@ -1027,7 +1041,7 @@ function App() {
         if (currentId !== requestIdRef.current) return
         const serverArticles = await fetchServerArticles({ category: selectedFeed.category })
         if (currentId !== requestIdRef.current) return
-        setArticles(serverArticles)
+        commitFirstPage(serverArticles)
         if (serverArticles.length > 0) await saveArticles(serverArticles)
         return
       }
@@ -1036,12 +1050,43 @@ function App() {
       if (currentId !== requestIdRef.current) return
       const serverArticles = await fetchServerArticles({ feedUrl: selectedFeed.xmlUrl })
       if (currentId !== requestIdRef.current) return
-      setArticles(serverArticles)
+      commitFirstPage(serverArticles)
       if (serverArticles.length > 0) await saveArticles(serverArticles)
     } finally {
       setIsRefreshing(false)
     }
   }, [selectedFeed, createRequest, setArticles, setServerArticleCount])
+
+  // 滚动加载更多:接 ArticleList 末尾的 sentinel(IntersectionObserver),按 PAGE_SIZE 累加
+  // 切换 feed 时 requestId 会自增,旧请求即使回来也会被守卫丢弃
+  const handleLoadMore = useCallback(async () => {
+    if (!selectedFeed || isLoadingMore || !hasMore) return
+    if (isSwitchingFeed || isRefreshing) return
+
+    const currentId = requestIdRef.current
+    setIsLoadingMore(true)
+
+    const params = { limit: ARTICLE_PAGE_SIZE, offset: pageOffset }
+    if (selectedFeed.xmlUrl?.startsWith('category:')) {
+      params.category = selectedFeed.category
+    } else if (selectedFeed.xmlUrl && selectedFeed.xmlUrl !== 'cached') {
+      params.feedUrl = selectedFeed.xmlUrl
+    }
+
+    try {
+      const more = await fetchServerArticles(params)
+      if (currentId !== requestIdRef.current) return
+      if (more.length > 0) {
+        setArticles((prev) => [...prev, ...more])
+        setPageOffset((prev) => prev + more.length)
+      }
+      setHasMore(more.length === ARTICLE_PAGE_SIZE)
+    } catch (err) {
+      console.error('[App] loadMore failed:', err)
+    } finally {
+      if (currentId === requestIdRef.current) setIsLoadingMore(false)
+    }
+  }, [selectedFeed, isLoadingMore, hasMore, isSwitchingFeed, isRefreshing, pageOffset, setArticles])
 
   // 标记当前订阅源(或 "文章总计" / 分类视图下所有 feed)的未读文章为已读
   // 直接从 unreadByFeed 里取 key,不需要回头扫 articles
@@ -1442,6 +1487,9 @@ function App() {
             onMarkAllAsRead={handleMarkAllAsRead}
             onRefresh={handleRefresh}
             isRefreshing={isRefreshing}
+            onLoadMore={handleLoadMore}
+            hasMore={hasMore}
+            isLoadingMore={isLoadingMore}
           />
         )}
 

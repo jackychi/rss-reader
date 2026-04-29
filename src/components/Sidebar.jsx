@@ -102,11 +102,11 @@ export default function Sidebar({
         </div>
       </div>
 
-      {/* 文章总计 */}
+      {/* 文章总计:常驻"重点入口",未选中时显示 emphasis 强调底色;主动点选才进入 active */}
       <div style={{ padding: '0 12px 12px' }}>
         <div
           onClick={onSelectAll}
-          className={`sidebar-item ${(selectedFeed?.xmlUrl === 'cached') || (!selectedFeed && !showReadingList) ? 'active' : ''}`}
+          className={`sidebar-item ${selectedFeed?.xmlUrl === 'cached' ? 'active' : 'emphasis'}`}
           style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderRadius: '6px' }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>

@@ -18,6 +18,8 @@
   --active-bg: #f0f7ff;
   --hover-bg: #f5f5f5;
   --shadow-color: rgba(0, 0, 0, 0.12);
+  --sidebar-emphasis-bg: #fff7e6;
+  --sidebar-emphasis-border: #f5d68a;
 }
 
 [data-theme="dark"] {
@@ -34,6 +36,8 @@
   --active-bg: #0a4080;
   --hover-bg: #3a3a3c;
   --shadow-color: rgba(0, 0, 0, 0.4);
+  --sidebar-emphasis-bg: #3a3220;
+  --sidebar-emphasis-border: #6b5a30;
 }
 
 /* Warm/Sepia Theme - 淡黄色护眼主题 */
@@ -51,6 +55,8 @@
   --active-bg: #f0ebdf;
   --hover-bg: #efecea;
   --shadow-color: rgba(60, 55, 45, 0.1);
+  --sidebar-emphasis-bg: #f3e4b8;
+  --sidebar-emphasis-border: #d4b870;
 }
 
 html, body, #root {
@@ -110,6 +116,19 @@ body {
 .sidebar-item.active {
   background-color: var(--accent-green);
   color: #ffffff;
+}
+
+/* Emphasis: 给"文章总计"这种入口级常驻强调,跟 .active(绿色)语义拉开 */
+/* 用浅黄系而非 accent 系——避免和未来其它 active 状态混淆 */
+.sidebar-item.emphasis {
+  background-color: var(--sidebar-emphasis-bg);
+  border-left: 3px solid var(--sidebar-emphasis-border);
+  padding-left: 13px; /* 抵消 3px 边框,保持文字对齐 */
+}
+
+.sidebar-item.emphasis:hover {
+  background-color: var(--sidebar-emphasis-bg);
+  filter: brightness(0.97);
 }
 
 .sidebar-category {
