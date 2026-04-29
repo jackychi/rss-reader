@@ -129,6 +129,9 @@ export default function ArticleList({
                 backgroundColor: 'transparent',
                 outline: 'none',
                 fontSize: '13px',
+                lineHeight: '18px',
+                height: '18px',
+                padding: 0,
                 color: 'var(--text-primary)'
               }}
             />
@@ -139,8 +142,16 @@ export default function ArticleList({
                   border: 'none',
                   background: 'none',
                   cursor: 'pointer',
-                  padding: '2px',
-                  color: 'var(--text-muted)'
+                  padding: 0,
+                  width: '18px',
+                  height: '18px',
+                  lineHeight: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'var(--text-muted)',
+                  fontSize: '14px',
+                  flexShrink: 0
                 }}
               >
                 ×
