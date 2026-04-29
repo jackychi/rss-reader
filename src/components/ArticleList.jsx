@@ -22,6 +22,7 @@ export default function ArticleList({
   onMarkAllAsRead,
   onRefresh,
   isRefreshing,
+  isRemoteSearching,
   onLoadMore,
   hasMore,
   isLoadingMore,
@@ -196,9 +197,16 @@ export default function ArticleList({
             <Loader2 size={24} className="animate-spin text-gray-400" />
           </div>
         ) : articles.length === 0 ? (
-          <div className="flex flex-col items-center h-full" style={{ padding: '24px', paddingTop: '75%' }}>
+          <div className="flex flex-col items-center justify-center h-full" style={{ padding: '24px' }}>
             {searchQuery ? (
-              <p className="text-sm text-gray-400">没有找到匹配的文章</p>
+              isRemoteSearching ? (
+                <div className="flex items-center gap-2 text-sm text-gray-400">
+                  <Loader2 size={14} className="animate-spin" />
+                  <span>正在搜索全部文章...</span>
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400">没有找到匹配的文章</p>
+              )
             ) : (
               <div style={{ maxWidth: '360px', textAlign: 'center' }}>
                 <div style={{
@@ -305,6 +313,14 @@ export default function ArticleList({
               </div>
             )
           })
+        )}
+
+        {/* 搜索中：后端搜索加载提示 */}
+        {searchQuery.trim() && isRemoteSearching && articles.length > 0 && (
+          <div style={{ padding: '12px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '6px', color: 'var(--text-muted)', fontSize: '12px' }}>
+            <Loader2 size={14} className="animate-spin" />
+            <span>正在搜索更多...</span>
+          </div>
         )}
 
         {/* 末尾 sentinel + 加载提示。搜索时不渲染(避免 observer 误触发) */}

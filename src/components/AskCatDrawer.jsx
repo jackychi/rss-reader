@@ -111,11 +111,19 @@ export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticl
   const [contextByIdRef] = useState(() => ({ current: new Map() }))
   const [contextByLinkRef] = useState(() => ({ current: new Map() }))
   const [drawerWidth, setDrawerWidth] = useState(() => getStoredDrawerWidth())
+  const [citationToast, setCitationToast] = useState('')
+  const citationToastTimer = useRef(null)
   const messagesEndRef = useRef(null)
   const textareaRef = useRef(null)
   const drawerRef = useRef(null)
   const prevIsOpenRef = useRef(isOpen)
   const abortRef = useRef(null)
+
+  const showCitationToast = useCallback((title) => {
+    setCitationToast(title)
+    clearTimeout(citationToastTimer.current)
+    citationToastTimer.current = setTimeout(() => setCitationToast(''), 2500)
+  }, [])
 
   // 拖拽左边缘调整抽屉宽度
   // 鼠标左移 → 宽度增大(起点右 - 当前点 = 正 delta)
@@ -336,6 +344,7 @@ export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticl
         const article = contextByIdRef.current.get(id)
         if (article && onOpenArticle) {
           onOpenArticle(article)
+          showCitationToast(article.title || article.feedTitle || `文章 #${id}`)
           return
         }
       }
@@ -350,10 +359,11 @@ export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticl
       if (article && onOpenArticle) {
         e.preventDefault()
         onOpenArticle(article)
+        showCitationToast(article.title || article.feedTitle || '文章')
       }
       // 查不到就走默认行为(不加 target,当前页会跳走——罕见 edge case,不特殊处理)
     }
-  }, [contextByIdRef, contextByLinkRef, onOpenArticle])
+  }, [contextByIdRef, contextByLinkRef, onOpenArticle, showCitationToast])
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -489,6 +499,22 @@ export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticl
             )}
             <div ref={messagesEndRef} />
           </div>
+
+          {citationToast && (
+            <div style={{
+              padding: '6px 12px',
+              backgroundColor: 'var(--accent-color)',
+              color: '#fff',
+              fontSize: '12px',
+              textAlign: 'center',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              animation: 'askcat-toast-in 0.2s ease',
+            }}>
+              已打开：{citationToast}
+            </div>
+          )}
 
           <div className="askcat-input-area">
             <textarea

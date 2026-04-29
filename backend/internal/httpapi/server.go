@@ -93,6 +93,7 @@ func (s *Server) handleArticles(w http.ResponseWriter, r *http.Request) {
 		FeedURL:  q.Get("feed_url"),
 		Category: q.Get("category"),
 		Search:   q.Get("q"),
+		Sort:     q.Get("sort"),
 		Limit:    intParam(q.Get("limit"), 50),
 		Offset:   intParam(q.Get("offset"), 0),
 	}

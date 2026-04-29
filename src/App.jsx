@@ -206,6 +206,10 @@ function App() {
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [articleSearchQuery, setArticleSearchQuery] = useState('')
+  const [remoteSearchResults, setRemoteSearchResults] = useState([])
+  const [isRemoteSearching, setIsRemoteSearching] = useState(false)
+  const remoteSearchTimer = useRef(null)
+  const remoteSearchAbort = useRef(null)
   // 阅读列表状态
   const [readingList, setReadingList] = useState([])
   const [showReadingList, setShowReadingList] = useState(false)
@@ -382,11 +386,15 @@ function App() {
   // 请求 ID，用于处理竞态条件
   const requestIdRef = useRef(0)
 
-  // 过滤后的文章（支持搜索）
+  // 过滤后的文章（两层搜索：本地即时 + 后端补全）
   const filteredArticles = useMemo(() => {
     if (!articleSearchQuery.trim()) return articles
-    return searchArticles(articleSearchQuery, articles)
-  }, [articles, articleSearchQuery, searchArticles])
+    const local = searchArticles(articleSearchQuery, articles)
+    if (remoteSearchResults.length === 0) return local
+    const localKeys = new Set(local.map(getArticleKey))
+    const extra = remoteSearchResults.filter(a => !localKeys.has(getArticleKey(a)))
+    return extra.length > 0 ? [...local, ...extra] : local
+  }, [articles, articleSearchQuery, searchArticles, remoteSearchResults])
 
   const activeNavigationArticles = useMemo(() => (
     showReadingList ? readingList : filteredArticles
@@ -1325,6 +1333,39 @@ function App() {
   // 文章搜索处理
   const handleArticleSearchChange = useCallback((query) => {
     setArticleSearchQuery(query)
+    clearTimeout(remoteSearchTimer.current)
+    remoteSearchAbort.current?.abort()
+
+    if (!query.trim()) {
+      setRemoteSearchResults([])
+      setIsRemoteSearching(false)
+      return
+    }
+
+    setIsRemoteSearching(true)
+    remoteSearchTimer.current = setTimeout(async () => {
+      const controller = new AbortController()
+      remoteSearchAbort.current = controller
+      try {
+        const res = await fetch(
+          `${CATREADER_API_URL}/api/articles?q=${encodeURIComponent(query.trim())}&limit=50`,
+          { signal: controller.signal }
+        )
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const data = await res.json()
+        const items = (data.items || []).map(a => ({
+          ...a,
+          pubDate: a.publishedAt,
+          isoDate: a.publishedAt,
+          _fromRemoteSearch: true,
+        }))
+        setRemoteSearchResults(items)
+      } catch (err) {
+        if (err?.name !== 'AbortError') console.error('[Search] remote search failed:', err)
+      } finally {
+        setIsRemoteSearching(false)
+      }
+    }, 300)
   }, [])
 
   // ============ 键盘快捷键 ============
@@ -1491,6 +1532,7 @@ function App() {
             formatDate={formatDate}
             searchQuery={articleSearchQuery}
             onSearchChange={handleArticleSearchChange}
+            isRemoteSearching={isRemoteSearching}
             onMarkAllAsRead={handleMarkAllAsRead}
             onRefresh={handleRefresh}
             isRefreshing={isRefreshing}

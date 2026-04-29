@@ -73,6 +73,7 @@ type ArticleQuery struct {
 	FeedURL  string
 	Category string
 	Search   string
+	Sort     string
 	Limit    int
 	Offset   int
 }
@@ -386,6 +387,10 @@ func (s *Store) ListArticles(ctx context.Context, q ArticleQuery) ([]Article, er
 		term := "%" + q.Search + "%"
 		args = append(args, term, term, term)
 	}
+	orderBy := "published_at DESC"
+	if q.Sort == "random" {
+		orderBy = "RANDOM()"
+	}
 	args = append(args, limit, q.Offset)
 
 	rows, err := s.db.QueryContext(ctx, `SELECT id, feed_id, feed_url, feed_title, category, title,
@@ -394,7 +399,7 @@ func (s *Store) ListArticles(ctx context.Context, q ArticleQuery) ([]Article, er
 			enclosure_length, published_at, fetched_at
 		FROM articles
 		WHERE `+strings.Join(where, " AND ")+`
-		ORDER BY published_at DESC
+		ORDER BY `+orderBy+`
 		LIMIT ? OFFSET ?`, args...)
 	if err != nil {
 		return nil, err
