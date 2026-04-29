@@ -53,6 +53,8 @@ export default function Header({
   isAskCatOpen = false,
   // 快捷键帮助
   onShowShortcuts,
+  // 回首页
+  onGoHome,
 }) {
   const [showThemeMenu, setShowThemeMenu] = useState(false)
   const [showSyncMenu, setShowSyncMenu] = useState(false)
@@ -135,7 +137,11 @@ export default function Header({
         >
           <PanelLeft size={18} />
         </button>
-        <div className="flex items-center gap-2">
+        <div
+          className="flex items-center gap-2"
+          onClick={onGoHome}
+          style={{ cursor: 'pointer', userSelect: 'none' }}
+        >
           <Rss size={18} style={{ color: '#ff9500' }} />
           <span style={{ fontWeight: 600, fontSize: '15px' }}>CatReader</span>
         </div>

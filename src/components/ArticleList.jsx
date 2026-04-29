@@ -1,6 +1,7 @@
-import { useState, useRef, useEffect } from 'react'
-import { FileText, Loader2, AlertCircle, Search, RefreshCw, CheckCheck } from 'lucide-react'
+import { useState, useRef, useEffect, useMemo } from 'react'
+import { Loader2, AlertCircle, Search, RefreshCw, CheckCheck } from 'lucide-react'
 import { getArticleKey } from '../utils/articleKey'
+import { quotes } from '../data/quotes'
 
 /**
  * ArticleList 组件 - 中间文章列表
@@ -25,6 +26,8 @@ export default function ArticleList({
   hasMore,
   isLoadingMore,
 }) {
+  const randomQuote = useMemo(() => quotes[Math.floor(Math.random() * quotes.length)], [])
+
   // 搜索框显示状态
   const [showSearch, setShowSearch] = useState(false)
 
@@ -193,13 +196,31 @@ export default function ArticleList({
             <Loader2 size={24} className="animate-spin text-gray-400" />
           </div>
         ) : articles.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-gray-400">
-            <FileText size={48} className="mb-3 opacity-30" />
-            <p className="text-sm">{
-              searchQuery
-                ? '没有找到匹配的文章'
-                : 'Select a feed to start reading'
-            }</p>
+          <div className="flex flex-col items-center h-full" style={{ padding: '24px', paddingTop: '75%' }}>
+            {searchQuery ? (
+              <p className="text-sm text-gray-400">没有找到匹配的文章</p>
+            ) : (
+              <div style={{ maxWidth: '360px', textAlign: 'center' }}>
+                <div style={{
+                  fontSize: '32px',
+                  lineHeight: 1,
+                  color: 'var(--text-muted)',
+                  opacity: 0.3,
+                  marginBottom: '12px',
+                }}>"</div>
+                <p style={{
+                  fontSize: '18px',
+                  lineHeight: 1.8,
+                  color: 'var(--text-secondary)',
+                  margin: '0 0 60px',
+                }}>{randomQuote.text}</p>
+                <p style={{
+                  fontSize: '13px',
+                  color: 'var(--text-muted)',
+                  margin: 0,
+                }}>—— {randomQuote.author}，{randomQuote.source}</p>
+              </div>
+            )}
           </div>
         ) : (
           articles.map((article) => {

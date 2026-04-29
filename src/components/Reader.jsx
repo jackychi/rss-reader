@@ -155,6 +155,9 @@ export default function Reader({
   const [audioProgress, setAudioProgress] = useState(initialAudioPosition)
   const [audioDuration, setAudioDuration] = useState(0)
   const [playbackRate, setPlaybackRate] = useState(1)
+  const [catAnimating, setCatAnimating] = useState(false)
+  const [catAnimKey, setCatAnimKey] = useState(0)
+  const catTimerRef = useRef(null)
   const audioRef = useRef(null)
   const contentRef = useRef(null)
   const scrollTimeoutRef = useRef(null)
@@ -162,6 +165,15 @@ export default function Reader({
   const progressRAFRef = useRef(null)  // requestAnimationFrame ID
   const saveTimerRef = useRef(null)  // 延迟保存定时器
   const feedIntroHTML = useMemo(() => renderFeedIntroHTML(feedIntro), [feedIntro])
+
+  const handleCatClick = () => {
+    clearTimeout(catTimerRef.current)
+    setCatAnimating(true)
+    setCatAnimKey(k => k + 1)
+    catTimerRef.current = setTimeout(() => setCatAnimating(false), 30000)
+  }
+
+  useEffect(() => () => clearTimeout(catTimerRef.current), [])
 
   // 恢复阅读滚动位置
   useEffect(() => {
@@ -862,10 +874,31 @@ export default function Reader({
               )}
             </div>
           ) : (
-            <>
-              <FileText size={64} style={{ opacity: 0.2, marginBottom: '16px' }} />
-              <p style={{ color: 'var(--text-muted)' }}>Select an article to read</p>
-            </>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
+              <div key={catAnimKey} className={catAnimating ? 'cat-wander' : ''}>
+                <img
+                  src="/cat-icon.svg"
+                  alt="CatReader"
+                  className={`cat-icon ${catAnimating ? 'cat-wiggle' : ''}`}
+                  style={{ width: '80px', height: '80px', opacity: 0.85 }}
+                  onClick={handleCatClick}
+                />
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <p style={{
+                  color: 'var(--text-primary)',
+                  fontSize: '18px',
+                  fontWeight: 600,
+                  margin: '0 0 6px',
+                  letterSpacing: '0.5px',
+                }}>墨问实验室共享 RSS 计划</p>
+                <p style={{
+                  color: 'var(--text-muted)',
+                  fontSize: '13px',
+                  margin: 0,
+                }}>选择一篇文章开始阅读吧</p>
+              </div>
+            </div>
           )}
         </div>
       )}

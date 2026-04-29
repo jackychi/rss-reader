@@ -1434,6 +1434,13 @@ function App() {
         isAskCatOpen={isAskCatOpen}
         onToggleAskCat={() => setIsAskCatOpen(v => !v)}
         onShowShortcuts={() => setShowShortcutsOverlay(true)}
+        onGoHome={() => {
+          setSelectedFeed(null)
+          setSelectedArticle(null)
+          setShowReadingList(false)
+          setArticleSearchQuery('')
+          setArticles([])
+        }}
       />
 
       <div className="flex-1 flex overflow-hidden">

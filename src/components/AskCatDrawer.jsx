@@ -535,8 +535,10 @@ export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticl
 function EmptyState({ onPrompt, disabled }) {
   return (
     <div style={{ margin: 'auto', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
-      <MessageCircle size={36} style={{ opacity: 0.3, marginBottom: '12px' }} />
-      <div style={{ marginBottom: '16px' }}>基于你订阅源里的文章聊聊</div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginBottom: '16px' }}>
+        <MessageCircle size={28} style={{ opacity: 0.3, flexShrink: 0 }} />
+        <span>基于订阅源里的文章聊聊</span>
+      </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
         {STARTER_PROMPTS.map((p) => (
           <button
