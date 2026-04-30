@@ -185,6 +185,8 @@ export default function Reader({
     { x: -140, y: 270 },
     { x: 50, y: 320 },
     { x: 240, y: 240 },
+    { x: 320, y: 100 },
+    { x: -80, y: -160 },
   ]
 
   const floatingPositions = useMemo(() =>
@@ -210,7 +212,7 @@ export default function Reader({
     floatingAbortRef.current = controller
     try {
       const res = await fetch(
-        `${CATREADER_API_URL}/api/recommendations?limit=10`,
+        `${CATREADER_API_URL}/api/recommendations?limit=12`,
         { signal: controller.signal }
       )
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -222,7 +224,7 @@ export default function Reader({
 
       if (items.length === 0) {
         const fallbackRes = await fetch(
-          `${CATREADER_API_URL}/api/articles?sort=random&limit=10`,
+          `${CATREADER_API_URL}/api/articles?sort=random&limit=12`,
           { signal: controller.signal }
         )
         if (fallbackRes.ok) {

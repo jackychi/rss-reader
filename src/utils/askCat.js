@@ -275,19 +275,19 @@ export async function callLLM(messages, config, { signal } = {}) {
 
 // ============ 文章评分 ============
 
-const SCORE_SYSTEM_PROMPT = `You are a reading curator. Given a list of RSS articles, pick the 10 most worth reading.
+const SCORE_SYSTEM_PROMPT = `You are a reading curator. Given a list of RSS articles, pick the 12 most worth reading.
 Prefer: unique insights, depth, timeliness, and diversity of topics. Avoid duplicates or low-value listicles.
-Return ONLY a JSON array of 10 objects: [{"index": <0-based index>, "reason": "<one sentence in Chinese>"}]
+Return ONLY a JSON array of 12 objects: [{"index": <0-based index>, "reason": "<one sentence in Chinese>"}]
 No markdown fencing, no explanation outside the array.`
 
 export async function scoreArticles(articles, config) {
   const fallback = () => {
     const shuffled = [...articles].sort(() => Math.random() - 0.5)
-    return shuffled.slice(0, 10).map((a, i) => ({ article: a, reason: '' }))
+    return shuffled.slice(0, 12).map((a, i) => ({ article: a, reason: '' }))
   }
 
-  if (!isConfigValid(config) || articles.length <= 10) {
-    return articles.length <= 10
+  if (!isConfigValid(config) || articles.length <= 12) {
+    return articles.length <= 12
       ? articles.map(a => ({ article: a, reason: '' }))
       : fallback()
   }
@@ -313,7 +313,7 @@ export async function scoreArticles(articles, config) {
         results.push({ article: articles[idx], reason: p.reason || '' })
       }
     }
-    return results.length > 0 ? results.slice(0, 10) : fallback()
+    return results.length > 0 ? results.slice(0, 12) : fallback()
   } catch (err) {
     console.error('[AskCat] scoreArticles failed, using fallback:', err)
     return fallback()
