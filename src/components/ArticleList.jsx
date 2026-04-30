@@ -208,16 +208,19 @@ export default function ArticleList({
 
       <div className="flex-1 overflow-y-auto">
         {isSingleFeed && feedIntroStatus === 'ready' && feedIntroHTML && (
-          <div style={{
-            padding: '10px 16px',
-            borderBottom: '1px solid var(--border-color)',
-            backgroundColor: 'var(--bg-secondary)',
+          <div
+            onClick={() => setIntroExpanded(!introExpanded)}
+            style={{
+              padding: '10px 16px',
+              borderBottom: '1px solid var(--border-color)',
+              background: 'linear-gradient(135deg, color-mix(in srgb, var(--accent-color) 6%, var(--bg-secondary)), var(--bg-secondary))',
+              borderLeft: '3px solid color-mix(in srgb, var(--accent-color) 40%, transparent)',
+              cursor: 'pointer',
           }}>
             <div
-              onClick={() => setIntroExpanded(!introExpanded)}
               style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                cursor: 'pointer', gap: '6px',
+                gap: '6px',
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-muted)', fontWeight: 500 }}>
@@ -312,7 +315,10 @@ export default function ArticleList({
                   if (el) rowRefs.current.set(articleKey, el)
                   else rowRefs.current.delete(articleKey)
                 }}
-                onClick={() => onSelectArticle(article)}
+                onClick={() => {
+                  if (introExpanded) setIntroExpanded(false)
+                  onSelectArticle(article)
+                }}
                 style={{
                   padding: '14px 16px',
                   borderBottom: '1px solid var(--border-color)',
