@@ -170,6 +170,7 @@ export default function Reader({
   const contentRef = useRef(null)
   const scrollTimeoutRef = useRef(null)
   const lastSavedTimeRef = useRef(0)
+  const restoredArticleRef = useRef(null)
   const progressRAFRef = useRef(null)
   const saveTimerRef = useRef(null)
   const feedIntroHTML = useMemo(() => renderFeedIntroHTML(feedIntro), [feedIntro])
@@ -253,10 +254,12 @@ export default function Reader({
     floatingAbortRef.current?.abort()
   }, [])
 
-  // 恢复阅读滚动位置
+  // 恢复阅读滚动位置（仅在切换文章时执行一次）
   useEffect(() => {
+    const key = selectedArticle?.guid
+    if (!key || restoredArticleRef.current === key) return
+    restoredArticleRef.current = key
     if (contentRef.current && initialReadPosition > 0) {
-      // 延迟执行确保内容已渲染
       setTimeout(() => {
         if (contentRef.current) {
           contentRef.current.scrollTop = initialReadPosition
