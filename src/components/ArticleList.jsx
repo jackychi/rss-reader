@@ -1,7 +1,23 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
-import { Loader2, AlertCircle, Search, RefreshCw, CheckCheck } from 'lucide-react'
+import { Loader2, AlertCircle, Search, RefreshCw, CheckCheck, Rss, ChevronDown, ChevronUp } from 'lucide-react'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import { getArticleKey } from '../utils/articleKey'
 import { quotes } from '../data/quotes'
+
+function addCJKSpacing(text) {
+  if (!text) return text
+  return text
+    .replace(/([一-龥぀-ゟ゠-ヿ])([A-Za-z0-9])/g, '$1 $2')
+    .replace(/([A-Za-z0-9])([一-龥぀-ゟ゠-ヿ])/g, '$1 $2')
+}
+
+function renderFeedIntroHTML(content) {
+  const html = marked.parse(addCJKSpacing(content || ''), { breaks: false, gfm: true })
+  return DOMPurify.sanitize(html, { ADD_ATTR: ['target', 'rel'] })
+    .replace(/<a([^>]*?)href="(https?:\/\/[^"]+)"([^>]*?)>/g,
+      '<a$1href="$2"$3 target="_blank" rel="noopener noreferrer">')
+}
 
 /**
  * ArticleList 组件 - 中间文章列表
@@ -26,8 +42,13 @@ export default function ArticleList({
   onLoadMore,
   hasMore,
   isLoadingMore,
+  feedIntro = '',
+  feedIntroStatus = 'idle',
 }) {
   const randomQuote = useMemo(() => quotes[Math.floor(Math.random() * quotes.length)], [])
+  const [introExpanded, setIntroExpanded] = useState(true)
+  const feedIntroHTML = useMemo(() => renderFeedIntroHTML(feedIntro), [feedIntro])
+  const isSingleFeed = selectedFeed?.xmlUrl && selectedFeed.xmlUrl !== 'cached' && !selectedFeed.xmlUrl.startsWith('category:')
 
   // 搜索框显示状态
   const [showSearch, setShowSearch] = useState(false)
@@ -186,6 +207,46 @@ export default function ArticleList({
       </div>
 
       <div className="flex-1 overflow-y-auto">
+        {isSingleFeed && feedIntroStatus === 'ready' && feedIntroHTML && (
+          <div style={{
+            padding: '10px 16px',
+            borderBottom: '1px solid var(--border-color)',
+            backgroundColor: 'var(--bg-secondary)',
+          }}>
+            <div
+              onClick={() => setIntroExpanded(!introExpanded)}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                cursor: 'pointer', gap: '6px',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-muted)', fontWeight: 500 }}>
+                <Rss size={12} style={{ color: '#ff9500' }} />
+                <span>栏目简介</span>
+              </div>
+              {introExpanded ? <ChevronUp size={14} style={{ color: 'var(--text-muted)' }} /> : <ChevronDown size={14} style={{ color: 'var(--text-muted)' }} />}
+            </div>
+            {introExpanded && (
+              <div
+                className="feed-intro-content"
+                dangerouslySetInnerHTML={{ __html: feedIntroHTML }}
+                style={{ fontSize: '12px', lineHeight: 1.6, color: 'var(--text-secondary)', marginTop: '8px' }}
+              />
+            )}
+          </div>
+        )}
+        {isSingleFeed && feedIntroStatus === 'loading' && (
+          <div style={{
+            padding: '10px 16px',
+            borderBottom: '1px solid var(--border-color)',
+            backgroundColor: 'var(--bg-secondary)',
+            display: 'flex', alignItems: 'center', gap: '6px',
+            fontSize: '12px', color: 'var(--text-muted)',
+          }}>
+            <Loader2 size={12} className="animate-spin" />
+            <span>正在生成栏目简介...</span>
+          </div>
+        )}
         {error && (
           <div className="p-3 bg-red-50 border-b border-red-100 flex items-start gap-2">
             <AlertCircle size={16} className="text-red-500 shrink-0 mt-0.5" />

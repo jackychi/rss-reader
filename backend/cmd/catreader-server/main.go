@@ -104,11 +104,10 @@ func main() {
 		APIKey:          cfg.LLMAPIKey,
 		Model:           cfg.LLMModel,
 		PoolSize:        50,
-		RefreshInterval: 12 * time.Hour,
+		RefreshInterval: 3 * time.Hour,
 	})
 	refresher.SetAfterRefresh(func(ctx context.Context) {
 		go introGenerator.RefreshDue(ctx)
-		go recGenerator.Refresh(ctx)
 	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

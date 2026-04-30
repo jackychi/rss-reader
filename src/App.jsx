@@ -1199,25 +1199,41 @@ function App() {
   }, [markAsRead, hydrateSelectedArticle])
 
   // 从文章阅读器跳转到对应 feed 专栏
-  const handleNavigateToFeed = useCallback((article) => {
+  const handleNavigateToFeed = useCallback(async (article, { keepArticle = false } = {}) => {
     const feedUrl = article.feedUrl
     if (!feedUrl) return
-    // 在 feeds 中查找匹配的 category + feed
     for (const category of feeds) {
       for (const feed of category.feeds) {
         if (feed.xmlUrl === feedUrl) {
-          // 展开对应分类
           if (!expandedCategories[category.category]) {
             setExpandedCategories(prev => ({ ...prev, [category.category]: true }))
           }
-          handleSelectFeed(category.category, feed)
-          // 确保侧边栏可见
           if (!sidebarVisible) setSidebarVisible(true)
+          if (keepArticle) {
+            setSelectedFeed(feed)
+            setShowReadingList(false)
+            setArticleSearchQuery('')
+            try {
+              const serverArticles = await fetchServerArticles({ feedUrl: feed.xmlUrl })
+              setArticles(serverArticles)
+              setPageOffset(serverArticles.length)
+              setHasMore(serverArticles.length === ARTICLE_PAGE_SIZE)
+            } catch {
+              const cachedArticles = await getArticles(feed.xmlUrl)
+              setArticles(cachedArticles)
+            }
+            setTimeout(() => {
+              const el = document.querySelector(`[data-feed-url="${CSS.escape(feedUrl)}"]`)
+              el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+            }, 100)
+          } else {
+            handleSelectFeed(category.category, feed)
+          }
           return
         }
       }
     }
-  }, [feeds, expandedCategories, handleSelectFeed, sidebarVisible, setExpandedCategories])
+  }, [feeds, expandedCategories, handleSelectFeed, sidebarVisible, setExpandedCategories, setArticles])
 
   const handleImportOPML = useCallback(async (event) => {
     const file = event.target.files[0]
@@ -1314,7 +1330,8 @@ function App() {
   }, [])
 
   const closeReader = useCallback(() => {
-    setReaderVisible(false)
+    setSelectedArticle(null)
+    setShowOriginal(false)
     setIsFullscreen(false)
   }, [])
 
@@ -1547,6 +1564,8 @@ function App() {
             onLoadMore={handleLoadMore}
             hasMore={hasMore}
             isLoadingMore={isLoadingMore}
+            feedIntro={selectedFeed?.xmlUrl ? serverFeedIntros[selectedFeed.xmlUrl]?.content || '' : ''}
+            feedIntroStatus={feedIntroStatus}
           />
         )}
 

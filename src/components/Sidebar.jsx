@@ -227,6 +227,7 @@ export default function Sidebar({
                       return (
                         <div
                           key={feed.xmlUrl}
+                          data-feed-url={feed.xmlUrl}
                           onClick={() => onSelectFeed(category.category, feed)}
                           className={`sidebar-item ${selectedFeed?.xmlUrl === feed.xmlUrl ? 'active' : ''}`}
                           style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderRadius: '6px', fontSize: '14px' }}

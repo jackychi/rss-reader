@@ -247,7 +247,7 @@ body {
 }
 
 .cat-wander {
-  animation: cat-wander-path 30s cubic-bezier(0.4, 0, 0.6, 1) forwards;
+  animation: cat-wander-path 24s cubic-bezier(0.4, 0, 0.6, 1) forwards;
 }
 
 .cat-wiggle {
@@ -311,11 +311,27 @@ body {
   to   { transform: translate(0, 0); }
 }
 
+.cat-intro-nudge {
+  animation: cat-nudge 0.4s ease-in-out 3;
+  animation-delay: 0.5s;
+}
+
+@keyframes cat-nudge {
+  0%, 100% { transform: rotate(0deg); }
+  25%      { transform: rotate(-8deg); }
+  75%      { transform: rotate(8deg); }
+}
+
 /* ============ 浮动推荐卡片 ============ */
 
 .floating-card-wrapper {
   position: absolute;
-  animation: floating-card-drift var(--drift-duration, 7s) ease-in-out var(--drift-delay, 0s) infinite;
+  animation: floating-card-drift 7s ease-in-out 0s infinite;
+}
+
+.floating-card-wrapper.floating-card-trail {
+  opacity: 0;
+  animation: floating-card-drop 0.5s ease-out forwards;
 }
 
 .floating-card-wrapper:hover {
@@ -367,6 +383,11 @@ body {
 @keyframes floating-card-in {
   from { opacity: 0; transform: translateY(16px) scale(0.9); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes floating-card-drop {
+  from { opacity: 0; transform: scale(0.6); }
+  to   { opacity: 1; transform: scale(1); }
 }
 
 @keyframes floating-card-drift {

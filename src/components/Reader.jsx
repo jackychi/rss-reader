@@ -158,6 +158,7 @@ export default function Reader({
   const [audioDuration, setAudioDuration] = useState(0)
   const [playbackRate, setPlaybackRate] = useState(1)
   const [catAnimating, setCatAnimating] = useState(false)
+  const [catIntroNudge, setCatIntroNudge] = useState(true)
   const [catAnimKey, setCatAnimKey] = useState(0)
   const [floatingArticles, setFloatingArticles] = useState([])
   const [showFloating, setShowFloating] = useState(false)
@@ -173,19 +174,26 @@ export default function Reader({
   const saveTimerRef = useRef(null)
   const feedIntroHTML = useMemo(() => renderFeedIntroHTML(feedIntro), [feedIntro])
 
-  const floatingPositions = useMemo(() => {
-    const cols = 2, rows = 5
-    return Array.from({ length: 10 }, (_, i) => {
-      const col = i % cols
-      const row = Math.floor(i / cols)
-      return {
-        x: 5 + col * 48 + Math.random() * 30,
-        y: 3 + row * 18 + Math.random() * 8,
-        duration: 6 + Math.random() * 4,
-        delay: Math.random() * 2,
-      }
-    })
-  }, [catAnimKey])
+  const CAT_TRAIL_POINTS = [
+    { x: 130, y: -50 },
+    { x: 260, y: -140 },
+    { x: 160, y: -280 },
+    { x: -30, y: -320 },
+    { x: -220, y: -240 },
+    { x: -320, y: -60 },
+    { x: -270, y: 130 },
+    { x: -140, y: 270 },
+    { x: 50, y: 320 },
+    { x: 240, y: 240 },
+  ]
+
+  const floatingPositions = useMemo(() =>
+    CAT_TRAIL_POINTS.map((pt, i) => ({
+      x: pt.x + (Math.random() - 0.5) * 60,
+      y: pt.y + (Math.random() - 0.5) * 40,
+      delay: 1.0 + i * 1.5,
+    }))
+  , [catAnimKey])
 
   const handleCatClick = useCallback(async () => {
     clearTimeout(catTimerRef.current)
@@ -195,7 +203,7 @@ export default function Reader({
     setCatAnimKey(k => k + 1)
     setFloatingArticles([])
     setShowFloating(false)
-    catTimerRef.current = setTimeout(() => setCatAnimating(false), 30000)
+    catTimerRef.current = setTimeout(() => setCatAnimating(false), 24000)
 
     setIsLoadingRecs(true)
     const controller = new AbortController()
@@ -229,7 +237,6 @@ export default function Reader({
       if (!controller.signal.aborted && items.length > 0) {
         setFloatingArticles(items)
         setShowFloating(true)
-        floatingTimerRef.current = setTimeout(() => setShowFloating(false), 30000)
       }
     } catch (err) {
       if (err?.name !== 'AbortError') console.error('[Reader] recommendation failed:', err)
@@ -440,7 +447,7 @@ export default function Reader({
                 </button>
               )}
               <button
-                onClick={() => onNavigateToFeed?.(selectedArticle)}
+                onClick={() => onNavigateToFeed?.(selectedArticle, { keepArticle: true })}
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -912,49 +919,25 @@ export default function Reader({
         </>
       ) : (
         <div className="reader-empty-state">
-          {selectedFeed?.title ? (
-            <div className="feed-intro-card">
-              <div className="feed-intro-kicker">
-                <Rss size={16} />
-                <span>栏目介绍</span>
-              </div>
-              <h2 className="feed-intro-title">{selectedFeed.title}</h2>
-
-              {feedIntroStatus === 'loading' && (
-                <div className="feed-intro-loading">
-                  <span className="feed-intro-spinner" />
-                  <span>正在分析这个栏目最近的内容...</span>
-                </div>
-              )}
-
-              {feedIntroStatus === 'ready' && feedIntro && (
-                <div
-                  className="feed-intro-content"
-                  dangerouslySetInnerHTML={{ __html: feedIntroHTML }}
-                />
-              )}
-
-              {feedIntroStatus === 'empty' && (
-                <p className="feed-intro-muted">后端还没有返回这个栏目的介绍，生成完成后会自动显示。</p>
-              )}
-
-              {feedIntroStatus === 'error' && (
-                <p className="feed-intro-muted">栏目介绍生成失败：{feedIntroError}</p>
-              )}
-            </div>
-          ) : (
             <div style={{ position: 'relative', width: '100%', height: '100%' }}>
               <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '20px', zIndex: 2, pointerEvents: 'none' }}>
-                <div key={catAnimKey} className={catAnimating ? 'cat-wander' : ''}>
+                <div
+                  key={catAnimKey}
+                  className={catAnimating ? 'cat-wander' : ''}
+                  style={{ cursor: 'pointer', pointerEvents: 'auto' }}
+                  onClick={() => { setCatIntroNudge(false); handleCatClick(); }}
+                >
                   <img
                     src="/cat-icon.svg"
                     alt="CatReader"
-                    className={`cat-icon ${catAnimating ? 'cat-wiggle' : ''}`}
-                    style={{ width: '80px', height: '80px', opacity: 0.85, cursor: 'pointer', pointerEvents: 'auto' }}
-                    onClick={handleCatClick}
+                    className={`cat-icon ${catAnimating ? 'cat-wiggle' : ''} ${catIntroNudge && !catAnimating ? 'cat-intro-nudge' : ''}`}
+                    style={{ width: '80px', height: '80px', opacity: 0.85 }}
                   />
                 </div>
-                <div style={{ textAlign: 'center' }}>
+                <div
+                  style={{ textAlign: 'center', cursor: 'pointer', pointerEvents: 'auto' }}
+                  onClick={() => { setCatIntroNudge(false); handleCatClick(); }}
+                >
                   <p style={{
                     color: 'var(--text-primary)',
                     fontSize: '18px',
@@ -978,18 +961,17 @@ export default function Reader({
                     return (
                       <div
                         key={article.id || i}
-                        className="floating-card-wrapper"
+                        className="floating-card-wrapper floating-card-trail"
                         style={{
-                          left: `${pos.x}%`,
-                          top: `${pos.y}%`,
-                          '--drift-duration': `${pos.duration}s`,
-                          '--drift-delay': `${pos.delay}s`,
+                          left: `calc(50% + ${pos.x}px)`,
+                          top: `calc(50% + ${pos.y}px)`,
+                          animationDelay: `${pos.delay}s`,
                         }}
                       >
                         <div
                           className="floating-card"
-                          style={{ animationDelay: `${i * 0.3}s` }}
-                          onClick={() => onSelectArticle?.(article)}
+                          style={{ animationDelay: `${pos.delay}s` }}
+                          onClick={(e) => { e.stopPropagation(); onSelectArticle?.(article); }}
                           title={reason}
                         >
                           <span className="floating-card-feed">{article.feedTitle}</span>
@@ -1001,7 +983,6 @@ export default function Reader({
                 </div>
               )}
             </div>
-          )}
         </div>
       )}
     </section>
