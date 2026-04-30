@@ -94,6 +94,21 @@ export const defaultFeeds = [
     ],
   },
   {
+    category: "AI Voices",
+    feeds: [
+      { title: "Andrej Karpathy", xmlUrl: "http://localhost:3847/feed/karpathy" },
+      { title: "Sam Altman", xmlUrl: "http://localhost:3847/feed/sama" },
+      { title: "Andrew Ng", xmlUrl: "http://localhost:3847/feed/AndrewYNg" },
+      { title: "Lex Fridman", xmlUrl: "http://localhost:3847/feed/lexfridman" },
+      { title: "Josh Miller", xmlUrl: "http://localhost:3847/feed/joshm" },
+      { title: "OpenAI", xmlUrl: "http://localhost:3847/feed/OpenAI" },
+      { title: "Google AI", xmlUrl: "http://localhost:3847/feed/GoogleAI" },
+      { title: "Google AI Developers", xmlUrl: "http://localhost:3847/feed/googleaidevs" },
+      { title: "DeepSeek", xmlUrl: "http://localhost:3847/feed/deepseek_ai" },
+      { title: "Qwen", xmlUrl: "http://localhost:3847/feed/Alibaba_Qwen" },
+    ],
+  },
+  {
     category: "技术与工程",
     feeds: [
       {
@@ -310,6 +325,10 @@ export const defaultFeeds = [
         xmlUrl: "https://www.ximalaya.com/album/51007459.xml",
       },
       {
+        title: "蒋方舟·一寸",
+        xmlUrl: "https://rsshub.rssforever.com/xiaoyuzhou/podcast/67c7eeb07ac3e30992e75a2f",
+      },
+      {
         title: "萧泊内",
         xmlUrl: "https://www.ximalaya.com/album/70410212.xml",
       },
@@ -319,7 +338,7 @@ export const defaultFeeds = [
       },
       {
         title: "文化有限",
-        xmlUrl: "https://s1.proxy.wavpub.com/weknownothing.xml",
+        xmlUrl: "https://rsshub.rssforever.com/xiaoyuzhou/podcast/5e4515bd418a84a046e2b11a",
       },
       {
         title: "相机夜话",
