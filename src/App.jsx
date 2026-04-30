@@ -1334,10 +1334,13 @@ function App() {
   const handleArticleSearchChange = useCallback((query) => {
     setArticleSearchQuery(query)
     clearTimeout(remoteSearchTimer.current)
-    remoteSearchAbort.current?.abort()
+    if (remoteSearchAbort.current) {
+      remoteSearchAbort.current.abort()
+      remoteSearchAbort.current = null
+    }
+    setRemoteSearchResults([])
 
     if (!query.trim()) {
-      setRemoteSearchResults([])
       setIsRemoteSearching(false)
       return
     }
@@ -1359,11 +1362,16 @@ function App() {
           isoDate: a.publishedAt,
           _fromRemoteSearch: true,
         }))
-        setRemoteSearchResults(items)
+        if (remoteSearchAbort.current === controller) {
+          setRemoteSearchResults(items)
+        }
       } catch (err) {
         if (err?.name !== 'AbortError') console.error('[Search] remote search failed:', err)
       } finally {
-        setIsRemoteSearching(false)
+        if (remoteSearchAbort.current === controller) {
+          remoteSearchAbort.current = null
+          setIsRemoteSearching(false)
+        }
       }
     }, 300)
   }, [])
@@ -1567,6 +1575,7 @@ function App() {
             feedIntro={selectedFeed?.xmlUrl ? serverFeedIntros[selectedFeed.xmlUrl]?.content || '' : ''}
             feedIntroStatus={feedIntroStatus}
             feedIntroError={feedIntroError}
+            onSelectArticle={handleSelectArticle}
           />
         )}
       </div>

@@ -152,6 +152,13 @@ func (s *Store) Migrate(ctx context.Context) error {
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,
+		`CREATE TABLE IF NOT EXISTS recommendations (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			article_id TEXT NOT NULL,
+			reason TEXT NOT NULL DEFAULT '',
+			model TEXT NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
 		`CREATE INDEX IF NOT EXISTS idx_feeds_category ON feeds(category, sort_order)`,
 		`CREATE INDEX IF NOT EXISTS idx_articles_feed_url ON articles(feed_url, published_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_articles_category ON articles(category, published_at DESC)`,
@@ -604,6 +611,78 @@ func articleEnclosure(url, mediaType, length string) *ArticleEnclosure {
 		Type:   strings.TrimSpace(mediaType),
 		Length: strings.TrimSpace(length),
 	}
+}
+
+// ============ 推荐文章 ============
+
+type Recommendation struct {
+	ArticleID string `json:"articleId"`
+	Reason    string `json:"reason"`
+}
+
+func (s *Store) SaveRecommendations(ctx context.Context, recs []Recommendation, model string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.ExecContext(ctx, `DELETE FROM recommendations`)
+	if err != nil {
+		return err
+	}
+
+	stmt, err := tx.PrepareContext(ctx, `INSERT INTO recommendations (article_id, reason, model, created_at)
+		VALUES (?, ?, ?, CURRENT_TIMESTAMP)`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, r := range recs {
+		if _, err := stmt.ExecContext(ctx, r.ArticleID, r.Reason, model); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *Store) GetRecommendations(ctx context.Context, limit int) ([]Article, []string, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT a.id, a.feed_id, a.feed_url, a.feed_title, a.category, a.title,
+			a.link, a.guid, '' AS content, a.content_snippet, a.enclosure_url, a.enclosure_type,
+			a.enclosure_length, a.published_at, a.fetched_at, r.reason
+		FROM recommendations r
+		JOIN articles a ON a.id = r.article_id
+		ORDER BY RANDOM()
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	var articles []Article
+	var reasons []string
+	for rows.Next() {
+		var article Article
+		var reason string
+		var enclosureURL, enclosureType, enclosureLength string
+		if err := rows.Scan(&article.ID, &article.FeedID, &article.FeedURL, &article.FeedTitle, &article.Category, &article.Title, &article.Link, &article.GUID, &article.Content, &article.ContentSnippet, &enclosureURL, &enclosureType, &enclosureLength, &article.PublishedAt, &article.FetchedAt, &reason); err != nil {
+			return nil, nil, err
+		}
+		article.Enclosure = articleEnclosure(enclosureURL, enclosureType, enclosureLength)
+		articles = append(articles, article)
+		reasons = append(reasons, reason)
+	}
+	return articles, reasons, rows.Err()
+}
+
+func (s *Store) RecommendationCount(ctx context.Context) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM recommendations`).Scan(&count)
+	return count, err
 }
 
 func trim(s string, max int) string {

@@ -1,9 +1,10 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
-import { X, ChevronRight, ExternalLink, FileText, Play, Pause, Download, Maximize2, Minimize2, Bookmark, BookmarkCheck, Rss, MoreHorizontal, Copy, Check, Send } from 'lucide-react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { X, ChevronRight, ExternalLink, FileText, Play, Pause, Download, Maximize2, Minimize2, Bookmark, BookmarkCheck, Rss, MoreHorizontal, Copy, Check, Send, Loader2 } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
+import { CATREADER_API_URL } from '../utils/constants'
 
 function addCJKSpacing(text) {
   if (!text) return text
@@ -149,7 +150,8 @@ export default function Reader({
   selectedFeed = null,
   feedIntro = '',
   feedIntroStatus = 'idle',
-  feedIntroError = null
+  feedIntroError = null,
+  onSelectArticle,
 }) {
   const [isPlaying, setIsPlaying] = useState(false)
   const [audioProgress, setAudioProgress] = useState(initialAudioPosition)
@@ -157,23 +159,90 @@ export default function Reader({
   const [playbackRate, setPlaybackRate] = useState(1)
   const [catAnimating, setCatAnimating] = useState(false)
   const [catAnimKey, setCatAnimKey] = useState(0)
+  const [floatingArticles, setFloatingArticles] = useState([])
+  const [showFloating, setShowFloating] = useState(false)
+  const [isLoadingRecs, setIsLoadingRecs] = useState(false)
   const catTimerRef = useRef(null)
+  const floatingTimerRef = useRef(null)
+  const floatingAbortRef = useRef(null)
   const audioRef = useRef(null)
   const contentRef = useRef(null)
   const scrollTimeoutRef = useRef(null)
-  const lastSavedTimeRef = useRef(0)  // 上次记录的时间
-  const progressRAFRef = useRef(null)  // requestAnimationFrame ID
-  const saveTimerRef = useRef(null)  // 延迟保存定时器
+  const lastSavedTimeRef = useRef(0)
+  const progressRAFRef = useRef(null)
+  const saveTimerRef = useRef(null)
   const feedIntroHTML = useMemo(() => renderFeedIntroHTML(feedIntro), [feedIntro])
 
-  const handleCatClick = () => {
+  const floatingPositions = useMemo(() => {
+    const cols = 2, rows = 5
+    return Array.from({ length: 10 }, (_, i) => {
+      const col = i % cols
+      const row = Math.floor(i / cols)
+      return {
+        x: 5 + col * 48 + Math.random() * 30,
+        y: 3 + row * 18 + Math.random() * 8,
+        duration: 6 + Math.random() * 4,
+        delay: Math.random() * 2,
+      }
+    })
+  }, [catAnimKey])
+
+  const handleCatClick = useCallback(async () => {
     clearTimeout(catTimerRef.current)
+    clearTimeout(floatingTimerRef.current)
+    floatingAbortRef.current?.abort()
     setCatAnimating(true)
     setCatAnimKey(k => k + 1)
+    setFloatingArticles([])
+    setShowFloating(false)
     catTimerRef.current = setTimeout(() => setCatAnimating(false), 30000)
-  }
 
-  useEffect(() => () => clearTimeout(catTimerRef.current), [])
+    setIsLoadingRecs(true)
+    const controller = new AbortController()
+    floatingAbortRef.current = controller
+    try {
+      const res = await fetch(
+        `${CATREADER_API_URL}/api/recommendations?limit=10`,
+        { signal: controller.signal }
+      )
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      let items = (data.items || []).map(a => {
+        const publishedAt = a.publishedAt || a.pubDate || a.isoDate || ''
+        return { article: { ...a, pubDate: publishedAt, isoDate: publishedAt }, reason: a.reason || '' }
+      })
+
+      if (items.length === 0) {
+        const fallbackRes = await fetch(
+          `${CATREADER_API_URL}/api/articles?sort=random&limit=10`,
+          { signal: controller.signal }
+        )
+        if (fallbackRes.ok) {
+          const fallbackData = await fallbackRes.json()
+          items = (fallbackData.items || []).map(a => {
+            const publishedAt = a.publishedAt || a.pubDate || a.isoDate || ''
+            return { article: { ...a, pubDate: publishedAt, isoDate: publishedAt }, reason: '' }
+          })
+        }
+      }
+
+      if (!controller.signal.aborted && items.length > 0) {
+        setFloatingArticles(items)
+        setShowFloating(true)
+        floatingTimerRef.current = setTimeout(() => setShowFloating(false), 30000)
+      }
+    } catch (err) {
+      if (err?.name !== 'AbortError') console.error('[Reader] recommendation failed:', err)
+    } finally {
+      setIsLoadingRecs(false)
+    }
+  }, [])
+
+  useEffect(() => () => {
+    clearTimeout(catTimerRef.current)
+    clearTimeout(floatingTimerRef.current)
+    floatingAbortRef.current?.abort()
+  }, [])
 
   // 恢复阅读滚动位置
   useEffect(() => {
@@ -874,30 +943,63 @@ export default function Reader({
               )}
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
-              <div key={catAnimKey} className={catAnimating ? 'cat-wander' : ''}>
-                <img
-                  src="/cat-icon.svg"
-                  alt="CatReader"
-                  className={`cat-icon ${catAnimating ? 'cat-wiggle' : ''}`}
-                  style={{ width: '80px', height: '80px', opacity: 0.85 }}
-                  onClick={handleCatClick}
-                />
+            <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+              <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '20px', zIndex: 2, pointerEvents: 'none' }}>
+                <div key={catAnimKey} className={catAnimating ? 'cat-wander' : ''}>
+                  <img
+                    src="/cat-icon.svg"
+                    alt="CatReader"
+                    className={`cat-icon ${catAnimating ? 'cat-wiggle' : ''}`}
+                    style={{ width: '80px', height: '80px', opacity: 0.85, cursor: 'pointer', pointerEvents: 'auto' }}
+                    onClick={handleCatClick}
+                  />
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <p style={{
+                    color: 'var(--text-primary)',
+                    fontSize: '18px',
+                    fontWeight: 600,
+                    margin: '0 0 6px',
+                    letterSpacing: '0.5px',
+                  }}>墨问实验室共享 RSS 计划</p>
+                  <p style={{
+                    color: 'var(--text-muted)',
+                    fontSize: '13px',
+                    margin: 0,
+                  }}>{isLoadingRecs ? '正在挑选好文章...' : '选择一篇文章开始阅读吧'}</p>
+                  {isLoadingRecs && <Loader2 size={16} className="animate-spin" style={{ color: 'var(--text-muted)', marginTop: '6px' }} />}
+                </div>
               </div>
-              <div style={{ textAlign: 'center' }}>
-                <p style={{
-                  color: 'var(--text-primary)',
-                  fontSize: '18px',
-                  fontWeight: 600,
-                  margin: '0 0 6px',
-                  letterSpacing: '0.5px',
-                }}>墨问实验室共享 RSS 计划</p>
-                <p style={{
-                  color: 'var(--text-muted)',
-                  fontSize: '13px',
-                  margin: 0,
-                }}>选择一篇文章开始阅读吧</p>
-              </div>
+
+              {floatingArticles.length > 0 && showFloating && (
+                <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 1 }}>
+                  {floatingArticles.map(({ article, reason }, i) => {
+                    const pos = floatingPositions[i] || floatingPositions[0]
+                    return (
+                      <div
+                        key={article.id || i}
+                        className="floating-card-wrapper"
+                        style={{
+                          left: `${pos.x}%`,
+                          top: `${pos.y}%`,
+                          '--drift-duration': `${pos.duration}s`,
+                          '--drift-delay': `${pos.delay}s`,
+                        }}
+                      >
+                        <div
+                          className="floating-card"
+                          style={{ animationDelay: `${i * 0.3}s` }}
+                          onClick={() => onSelectArticle?.(article)}
+                          title={reason}
+                        >
+                          <span className="floating-card-feed">{article.feedTitle}</span>
+                          <span className="floating-card-title">{article.title}</span>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           )}
         </div>

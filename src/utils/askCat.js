@@ -272,3 +272,50 @@ export async function callLLM(messages, config, { signal } = {}) {
   }
   return extractThinkTag(content)
 }
+
+// ============ 文章评分 ============
+
+const SCORE_SYSTEM_PROMPT = `You are a reading curator. Given a list of RSS articles, pick the 10 most worth reading.
+Prefer: unique insights, depth, timeliness, and diversity of topics. Avoid duplicates or low-value listicles.
+Return ONLY a JSON array of 10 objects: [{"index": <0-based index>, "reason": "<one sentence in Chinese>"}]
+No markdown fencing, no explanation outside the array.`
+
+export async function scoreArticles(articles, config) {
+  const fallback = () => {
+    const shuffled = [...articles].sort(() => Math.random() - 0.5)
+    return shuffled.slice(0, 10).map((a, i) => ({ article: a, reason: '' }))
+  }
+
+  if (!isConfigValid(config) || articles.length <= 10) {
+    return articles.length <= 10
+      ? articles.map(a => ({ article: a, reason: '' }))
+      : fallback()
+  }
+
+  const listing = articles.map((a, i) =>
+    `[${i}] 【${a.feedTitle || ''}】${a.title || ''} (${a.publishedAt || a.pubDate || ''})\n${(a.contentSnippet || '').slice(0, 120)}`
+  ).join('\n\n')
+
+  try {
+    const reply = await callLLM([
+      { role: 'system', content: SCORE_SYSTEM_PROMPT },
+      { role: 'user', content: listing },
+    ], config)
+
+    const jsonStr = reply.content.replace(/```json?\s*/g, '').replace(/```/g, '').trim()
+    const picks = JSON.parse(jsonStr)
+    if (!Array.isArray(picks)) return fallback()
+
+    const results = []
+    for (const p of picks) {
+      const idx = typeof p.index === 'number' ? p.index : parseInt(p.index, 10)
+      if (idx >= 0 && idx < articles.length) {
+        results.push({ article: articles[idx], reason: p.reason || '' })
+      }
+    }
+    return results.length > 0 ? results.slice(0, 10) : fallback()
+  } catch (err) {
+    console.error('[AskCat] scoreArticles failed, using fallback:', err)
+    return fallback()
+  }
+}

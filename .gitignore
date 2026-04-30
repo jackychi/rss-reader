@@ -28,6 +28,7 @@ coverage
 
 # Local backend runtime data
 /backend/data/
+/backend/catreader-server
 *.db
 *.db-shm
 *.db-wal

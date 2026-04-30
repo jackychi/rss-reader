@@ -13,6 +13,7 @@ import (
 	"catreader/backend/internal/feedintro"
 	"catreader/backend/internal/feeds"
 	"catreader/backend/internal/httpapi"
+	"catreader/backend/internal/recommend"
 	"catreader/backend/internal/rss"
 	"catreader/backend/internal/store"
 	"catreader/backend/internal/userstate"
@@ -98,8 +99,16 @@ func main() {
 			log.Printf("detected %d new feed(s); they will be fetched in this refresh", newCount)
 		}
 	})
+	recGenerator := recommend.NewGenerator(db, recommend.Config{
+		BaseURL:         cfg.LLMBaseURL,
+		APIKey:          cfg.LLMAPIKey,
+		Model:           cfg.LLMModel,
+		PoolSize:        50,
+		RefreshInterval: 12 * time.Hour,
+	})
 	refresher.SetAfterRefresh(func(ctx context.Context) {
 		go introGenerator.RefreshDue(ctx)
+		go recGenerator.Refresh(ctx)
 	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -115,11 +124,13 @@ func main() {
 		}()
 	} else {
 		go introGenerator.RefreshDue(ctx)
+		go recGenerator.Refresh(ctx)
 	}
 	go refresher.Start(ctx)
 	go introGenerator.Start(ctx)
+	go recGenerator.Start(ctx)
 
-	api := httpapi.NewServer(db, refresher, introGenerator, userStateStore)
+	api := httpapi.NewServer(db, refresher, introGenerator, recGenerator, userStateStore)
 	server := &http.Server{
 		Addr:         cfg.Addr,
 		Handler:      api.Routes(),

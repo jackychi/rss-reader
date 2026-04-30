@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"catreader/backend/internal/feedintro"
+	"catreader/backend/internal/recommend"
 	"catreader/backend/internal/rss"
 	"catreader/backend/internal/store"
 	"catreader/backend/internal/userstate"
@@ -25,11 +26,12 @@ type Server struct {
 	store          *store.Store
 	refresher      *rss.Refresher
 	introGenerator *feedintro.Generator
+	recGenerator   *recommend.Generator
 	userState      *userstate.Store
 }
 
-func NewServer(store *store.Store, refresher *rss.Refresher, introGenerator *feedintro.Generator, userState *userstate.Store) *Server {
-	return &Server{store: store, refresher: refresher, introGenerator: introGenerator, userState: userState}
+func NewServer(store *store.Store, refresher *rss.Refresher, introGenerator *feedintro.Generator, recGenerator *recommend.Generator, userState *userstate.Store) *Server {
+	return &Server{store: store, refresher: refresher, introGenerator: introGenerator, recGenerator: recGenerator, userState: userState}
 }
 
 func (s *Server) Routes() http.Handler {
@@ -40,6 +42,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/feeds", s.handleFeeds)
 	mux.HandleFunc("GET /api/articles", s.handleArticles)
 	mux.HandleFunc("GET /api/articles/", s.handleArticle)
+	mux.HandleFunc("GET /api/recommendations", s.handleRecommendations)
 	mux.HandleFunc("GET /api/user-state", s.handleGetUserState)
 	mux.HandleFunc("POST /api/user-state", s.handlePostUserState)
 	mux.HandleFunc("POST /api/admin/refresh", s.handleRefresh)
@@ -125,6 +128,24 @@ func (s *Server) handleArticle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, article)
+}
+
+func (s *Server) handleRecommendations(w http.ResponseWriter, r *http.Request) {
+	limit := intParam(r.URL.Query().Get("limit"), 10)
+	articles, reasons, err := s.store.GetRecommendations(r.Context(), limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	type item struct {
+		store.Article
+		Reason string `json:"reason,omitempty"`
+	}
+	items := make([]item, len(articles))
+	for i := range articles {
+		items[i] = item{Article: articles[i], Reason: reasons[i]}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
 func (s *Server) handleGetUserState(w http.ResponseWriter, r *http.Request) {
