@@ -479,7 +479,7 @@ function App() {
       selectedFeed.xmlUrl !== 'cached' &&
       !selectedFeed.xmlUrl.startsWith('category:')
 
-    if (!isSingleFeed || selectedArticle || showReadingList) {
+    if (!isSingleFeed || showReadingList) {
       scheduleFeedIntroState('idle')
       return () => { cancelled = true }
     }
@@ -499,7 +499,6 @@ function App() {
     return () => { cancelled = true }
   }, [
     selectedFeed,
-    selectedArticle,
     showReadingList,
     serverFeedIntros,
     loading,
@@ -1347,7 +1346,7 @@ function App() {
     setFontSize(size)
   }, [setFontSize])
 
-  // 文章搜索处理
+  // 文章搜索处理（按当前分类或订阅源过滤）
   const handleArticleSearchChange = useCallback((query) => {
     setArticleSearchQuery(query)
     clearTimeout(remoteSearchTimer.current)
@@ -1367,8 +1366,14 @@ function App() {
       const controller = new AbortController()
       remoteSearchAbort.current = controller
       try {
+        const params = new URLSearchParams({ q: query.trim(), limit: '50' })
+        if (selectedFeed?.xmlUrl?.startsWith('category:')) {
+          params.set('category', selectedFeed.category)
+        } else if (selectedFeed?.xmlUrl && selectedFeed.xmlUrl !== 'cached') {
+          params.set('feed_url', selectedFeed.xmlUrl)
+        }
         const res = await fetch(
-          `${CATREADER_API_URL}/api/articles?q=${encodeURIComponent(query.trim())}&limit=50`,
+          `${CATREADER_API_URL}/api/articles?${params}`,
           { signal: controller.signal }
         )
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -1391,7 +1396,7 @@ function App() {
         }
       }
     }, 300)
-  }, [])
+  }, [selectedFeed])
 
   // ============ 键盘快捷键 ============
 
