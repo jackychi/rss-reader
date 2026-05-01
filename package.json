@@ -4,7 +4,11 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/dev-all.mjs",
+    "dev:all": "node scripts/dev-all.mjs",
+    "dev:frontend": "vite",
+    "dev:backend": "cd backend && GOCACHE=/private/tmp/catreader-go-cache go run ./cmd/catreader-server",
+    "dev:bridge": "npm --prefix ../opencli-rss-bridge start",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",

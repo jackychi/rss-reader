@@ -36,17 +36,41 @@ localhost requests.
 
 ## Run
 
-Start the backend:
-
-```bash
-cd backend
-go run ./cmd/catreader-server
-```
-
-Start the frontend in another terminal:
+Start the full local development stack from the project root:
 
 ```bash
 npm run dev
+```
+
+This starts three services and stops them together when you press `Ctrl+C`:
+
+- React + Vite frontend: `http://127.0.0.1:5173`
+- Go backend: `http://127.0.0.1:8080/health`
+- `opencli-rss-bridge`: `http://localhost:3847/feeds`
+
+The bridge is expected at `../opencli-rss-bridge` next to this repository. If
+it lives somewhere else, set `CATREADER_BRIDGE_DIR` before running `npm run dev`.
+The backend uses `GOCACHE=/private/tmp/catreader-go-cache` by default on this
+Mac so Go builds do not depend on a locked cache directory.
+
+For focused debugging, each service can still be started independently:
+
+Start the backend:
+
+```bash
+npm run dev:backend
+```
+
+Start the frontend:
+
+```bash
+npm run dev:frontend
+```
+
+Start the OpenCLI RSS bridge:
+
+```bash
+npm run dev:bridge
 ```
 
 If you edit `backend/.env.local`, restart the relevant dev server.

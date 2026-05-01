@@ -106,6 +106,7 @@ export const defaultFeeds = [
       { title: "Google AI Developers", xmlUrl: "http://localhost:3847/feed/googleaidevs" },
       { title: "DeepSeek", xmlUrl: "http://localhost:3847/feed/deepseek_ai" },
       { title: "Qwen", xmlUrl: "http://localhost:3847/feed/Alibaba_Qwen" },
+      { title: "OpenClaw", xmlUrl: "http://localhost:3847/feed/openclaw" },
     ],
   },
   {
