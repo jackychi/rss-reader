@@ -1,10 +1,12 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
-import { X, ChevronRight, ExternalLink, FileText, Play, Pause, Download, Maximize2, Minimize2, Bookmark, BookmarkCheck, Rss, MoreHorizontal, Copy, Check, Send, Loader2 } from 'lucide-react'
+import { X, ChevronRight, ExternalLink, FileText, Play, Pause, Download, Maximize2, Minimize2, Bookmark, BookmarkCheck, Rss, MoreHorizontal, Copy, Check, Send, Loader2, PictureInPicture2 } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { CATREADER_API_URL } from '../utils/constants'
+import { parseChapters } from '../utils/parseChapters'
+import { useAudioPlayer } from '../contexts/AudioPlayerContext'
 
 function addCJKSpacing(text) {
   if (!text) return text
@@ -153,6 +155,9 @@ export default function Reader({
   feedIntroError = null,
   onSelectArticle,
 }) {
+  const pip = useAudioPlayer()
+  const pipControlled = pip.isPipPlayingArticle(selectedArticle)
+
   const [isPlaying, setIsPlaying] = useState(false)
   const [audioProgress, setAudioProgress] = useState(initialAudioPosition)
   const [audioDuration, setAudioDuration] = useState(0)
@@ -345,76 +350,62 @@ export default function Reader({
     }
   }
 
-  // 去除HTML标签的工具函数
-  const stripHtml = (html) => {
-    if (!html) return ''
-    return html
-      .replace(/<[^>]*>/g, '')  // 移除HTML标签
-      .replace(/&nbsp;/g, ' ')
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'")
-      .trim()
-  }
-
-  // 解析时间轴章节 - 支持多种格式: [01:23], 01:23, 01:23:45, 1:23:45
-  const parseChapters = (content) => {
-    if (!content) return []
-    // 先去除HTML标签
-    const plainText = stripHtml(content).replace(/\r\n/g, '\n')
-    const chapterRegex = /\[?(\d{1,2}):(\d{2})(?::(\d{2}))?\]?/g
-    const chapters = []
-    const matches = Array.from(plainText.matchAll(chapterRegex))
-
-    matches.forEach((match, index) => {
-      const hours = parseInt(match[1], 10)
-      const minutes = parseInt(match[2], 10)
-      const seconds = match[3] ? parseInt(match[3], 10) : 0
-
-      // 计算总秒数 - 判断是 HH:MM:SS 还是 MM:SS 格式
-      let totalSeconds
-      if (hours < 60) {
-        totalSeconds = hours * 60 + minutes
-        if (match[3]) {
-          totalSeconds = hours * 3600 + minutes * 60 + seconds
-        }
-      } else {
-        totalSeconds = hours * 60 + minutes
-      }
-
-      // 标题只取“当前时间戳之后，到下一个时间戳之前”的片段
-      const currentEnd = (match.index ?? 0) + match[0].length
-      const nextStart = matches[index + 1]?.index ?? plainText.length
-      const rawTitle = plainText
-        .slice(currentEnd, nextStart)
-        .replace(/\s+/g, ' ')
-        .replace(/^[\s\-.:，,|]+/, '')
-        .trim()
-      const title = rawTitle.slice(0, 60)
-
-      chapters.push({
-        time: totalSeconds,
-        label: match[0].replace(/\[|\]/g, ''),
-        title: title || '章节 ' + (chapters.length + 1)
-      })
-    })
-
-    // 去重并按时间排序
-    const uniqueChapters = chapters.filter((c, i, arr) =>
-      i === 0 || c.time !== arr[i - 1].time
-    ).sort((a, b) => a.time - b.time)
-
-    return uniqueChapters
-  }
-
   const audioSrc = selectedArticle ? getArticleAudio(selectedArticle) : null
 
   // 获取文章内容中的章节
   const chapters = audioSrc && selectedArticle ? parseChapters(
     selectedArticle.content || selectedArticle['content:encoded'] || ''
   ) : []
+
+  // 自动 PiP：卸载时如果本地音频在播放，自动进入收起模式的 PiP
+  // audioRef 在 useEffect cleanup 时已被 React 置 null，所以用独立 ref 追踪状态
+  const localPlayingRef = useRef(false)
+  const localTimeRef = useRef(0)
+  const autoPipRef = useRef({})
+  autoPipRef.current = {
+    article: selectedArticle ? { ...selectedArticle, feedTitle: selectedFeed?.title } : null,
+    audioSrc,
+    chapters,
+    playbackRate,
+    pipControlled,
+    isPipActive: pip.isPipActive,
+  }
+  useEffect(() => {
+    return () => {
+      const s = autoPipRef.current
+      if (
+        !s.pipControlled &&
+        !s.isPipActive &&
+        s.audioSrc &&
+        s.article &&
+        localPlayingRef.current
+      ) {
+        pip.activatePip(s.article, s.audioSrc, s.chapters, localTimeRef.current, s.playbackRate, true)
+      }
+    }
+  }, [])
+
+  const effectivePlaying = pipControlled ? pip.isPlaying : isPlaying
+  const effectiveProgress = pipControlled ? pip.audioProgress : audioProgress
+  const effectiveDuration = pipControlled ? pip.audioDuration : audioDuration
+  const effectiveRate = pipControlled ? pip.playbackRate : playbackRate
+  const effectiveSeek = pipControlled ? pip.seekToTime : seekToTime
+  const effectiveCycleRate = pipControlled ? pip.cyclePlaybackRate : cyclePlaybackRate
+  const effectiveProgressClick = pipControlled ? pip.handleProgressClick : handleProgressClick
+
+  const effectiveTogglePlay = () => {
+    if (pipControlled) return pip.togglePlay()
+    if (pip.isPipActive && !pipControlled && audioSrc) {
+      const t = audioRef.current?.currentTime || audioProgress || 0
+      pip.activatePip(
+        { ...selectedArticle, feedTitle: selectedFeed?.title },
+        audioSrc, chapters, t, playbackRate, pip.isPipCollapsed,
+      )
+      if (audioRef.current) audioRef.current.pause()
+      return
+    }
+    togglePlay()
+  }
 
   // 复制 shownotes
   const [shownotesCopied, setShownotesCopied] = useState(false)
@@ -649,39 +640,39 @@ export default function Reader({
                         gap: '12px',
                       }}
                     >
-                      <audio
-                        ref={audioRef}
-                        src={audioSrc}
-                        onPlay={() => setIsPlaying(true)}
-                        onPause={() => {
-                          setIsPlaying(false)
-                          // 暂停时记录位置
-                          if (audioRef.current?.currentTime && onUpdateAudioPosition) {
-                            onUpdateAudioPosition(audioRef.current.currentTime)
-                          }
-                        }}
-                        onTimeUpdate={() => {
-                          // 用 rAF 合并进度更新，避免每 250ms 都触发 re-render
-                          if (!progressRAFRef.current) {
-                            progressRAFRef.current = requestAnimationFrame(() => {
-                              progressRAFRef.current = null
-                              const currentTime = audioRef.current?.currentTime || 0
-                              setAudioProgress(currentTime)
-                            })
-                          }
-                          // 记录音频位置（每30秒持久化一次，减少 localStorage 写入）
-                          const currentTime = audioRef.current?.currentTime || 0
-                          if (currentTime > 0 && currentTime - lastSavedTimeRef.current >= 30 && onUpdateAudioPosition) {
-                            lastSavedTimeRef.current = currentTime
-                            // 用 setTimeout 将 localStorage 写入推到下一个宏任务，不阻塞音频解码
-                            clearTimeout(saveTimerRef.current)
-                            saveTimerRef.current = setTimeout(() => onUpdateAudioPosition(currentTime), 0)
-                          }
-                        }}
-                        onLoadedMetadata={() => setAudioDuration(audioRef.current?.duration || 0)}
-                      />
+                      {!pipControlled && (
+                        <audio
+                          ref={audioRef}
+                          src={audioSrc}
+                          onPlay={() => { setIsPlaying(true); localPlayingRef.current = true }}
+                          onPause={() => {
+                            setIsPlaying(false)
+                            localPlayingRef.current = false
+                            if (audioRef.current?.currentTime && onUpdateAudioPosition) {
+                              onUpdateAudioPosition(audioRef.current.currentTime)
+                            }
+                          }}
+                          onTimeUpdate={() => {
+                            localTimeRef.current = audioRef.current?.currentTime || 0
+                            if (!progressRAFRef.current) {
+                              progressRAFRef.current = requestAnimationFrame(() => {
+                                progressRAFRef.current = null
+                                const currentTime = audioRef.current?.currentTime || 0
+                                setAudioProgress(currentTime)
+                              })
+                            }
+                            const currentTime = audioRef.current?.currentTime || 0
+                            if (currentTime > 0 && currentTime - lastSavedTimeRef.current >= 30 && onUpdateAudioPosition) {
+                              lastSavedTimeRef.current = currentTime
+                              clearTimeout(saveTimerRef.current)
+                              saveTimerRef.current = setTimeout(() => onUpdateAudioPosition(currentTime), 0)
+                            }
+                          }}
+                          onLoadedMetadata={() => setAudioDuration(audioRef.current?.duration || 0)}
+                        />
+                      )}
                       <button
-                        onClick={togglePlay}
+                        onClick={effectiveTogglePlay}
                         style={{
                           width: '36px',
                           height: '36px',
@@ -696,7 +687,7 @@ export default function Reader({
                           flexShrink: 0,
                         }}
                       >
-                        {isPlaying ? <Pause size={16} fill="#ffffff" /> : <Play size={16} fill="#ffffff" style={{ marginLeft: '2px' }} />}
+                        {effectivePlaying ? <Pause size={16} fill="#ffffff" /> : <Play size={16} fill="#ffffff" style={{ marginLeft: '2px' }} />}
                       </button>
                       <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <div
@@ -710,11 +701,11 @@ export default function Reader({
                             cursor: 'pointer',
                             position: 'relative',
                           }}
-                          onClick={handleProgressClick}
+                          onClick={effectiveProgressClick}
                         >
                           <div
                             style={{
-                              width: audioDuration ? `${(audioProgress / audioDuration) * 100}%` : '0%',
+                              width: effectiveDuration ? `${(effectiveProgress / effectiveDuration) * 100}%` : '0%',
                               height: '100%',
                               backgroundColor: 'var(--accent-color)',
                               borderRadius: '4px',
@@ -734,17 +725,17 @@ export default function Reader({
                               borderRadius: '50%',
                               border: '2px solid var(--bg-primary)',
                               boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-                              opacity: audioDuration ? 1 : 0,
+                              opacity: effectiveDuration ? 1 : 0,
                               transition: 'opacity 0.2s ease',
                             }}
                           />
                         </div>
                         <span style={{ fontSize: '11px', color: 'var(--text-muted)', flexShrink: 0, minWidth: '36px' }}>
-                          {formatTime(audioProgress)}/{formatTime(audioDuration)}
+                          {formatTime(effectiveProgress)}/{formatTime(effectiveDuration)}
                         </span>
                       </div>
                       <button
-                        onClick={cyclePlaybackRate}
+                        onClick={effectiveCycleRate}
                         style={{
                           padding: '4px 8px',
                           borderRadius: '4px',
@@ -756,7 +747,7 @@ export default function Reader({
                           flexShrink: 0,
                         }}
                       >
-                        {playbackRate}x
+                        {effectiveRate}x
                       </button>
                       <a
                         href={audioSrc}
@@ -777,6 +768,35 @@ export default function Reader({
                       >
                         <Download size={14} />
                       </a>
+                      {!pipControlled && (
+                        <button
+                          onClick={() => {
+                            const currentTime = audioRef.current?.currentTime || audioProgress
+                            pip.activatePip(
+                              { ...selectedArticle, feedTitle: selectedFeed?.title },
+                              audioSrc,
+                              chapters,
+                              currentTime,
+                              playbackRate,
+                            )
+                            if (audioRef.current) audioRef.current.pause()
+                          }}
+                          title="画中画"
+                          style={{
+                            padding: '4px 8px',
+                            borderRadius: '4px',
+                            border: '1px solid var(--border-color)',
+                            backgroundColor: 'var(--bg-tertiary)',
+                            color: 'var(--text-secondary)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            cursor: 'pointer',
+                            flexShrink: 0,
+                          }}
+                        >
+                          <PictureInPicture2 size={14} />
+                        </button>
+                      )}
                     </div>
                   )}
 
@@ -842,7 +862,7 @@ export default function Reader({
                         {chapters.map((chapter, index) => (
                           <button
                             key={index}
-                            onClick={() => seekToTime(chapter.time)}
+                            onClick={() => effectiveSeek(chapter.time)}
                             style={{
                               display: 'flex',
                               alignItems: 'center',

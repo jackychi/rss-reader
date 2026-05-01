@@ -20,6 +20,8 @@ import Reader from './components/Reader'
 import ReadingList from './components/ReadingList'
 import AskCatDrawer from './components/AskCatDrawer'
 import ShortcutsOverlay from './components/ShortcutsOverlay'
+import { AudioPlayerProvider } from './contexts/AudioPlayerContext'
+import FloatingPlayer from './components/FloatingPlayer'
 
 // 常量
 const STORAGE_KEYS = {
@@ -1483,6 +1485,7 @@ function App() {
   useKeyboardShortcuts(SHORTCUTS)
 
   return (
+    <AudioPlayerProvider onUpdateAudioPosition={handleUpdateAudioPosition}>
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-primary)' }}>
       {/* Header */}
       <Header
@@ -1614,12 +1617,15 @@ function App() {
       />
 
       {/* 键盘快捷键帮助浮层 — ? 键触发,SHORTCUTS 数据双用:驱动按键 + 渲染表格 */}
+      <FloatingPlayer />
+
       <ShortcutsOverlay
         isOpen={showShortcutsOverlay}
         onClose={() => setShowShortcutsOverlay(false)}
         shortcuts={SHORTCUTS}
       />
     </div>
+    </AudioPlayerProvider>
   )
 }
 
