@@ -107,6 +107,11 @@ export const defaultFeeds = [
       { title: "DeepSeek", xmlUrl: "http://localhost:3847/feed/deepseek_ai" },
       { title: "Qwen", xmlUrl: "http://localhost:3847/feed/Alibaba_Qwen" },
       { title: "OpenClaw", xmlUrl: "http://localhost:3847/feed/openclaw" },
+      { title: "Paul Graham", xmlUrl: "http://localhost:3847/feed/paulg" },
+      { title: "Bindu Reddy", xmlUrl: "http://localhost:3847/feed/bindureddy" },
+      { title: "Garry Tan", xmlUrl: "http://localhost:3847/feed/garrytan" },
+      { title: "Hasan Toor", xmlUrl: "http://localhost:3847/feed/hasantoxr" },
+      { title: "Mike Tang", xmlUrl: "http://localhost:3847/feed/blackanger" },
     ],
   },
   {
