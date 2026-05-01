@@ -25,6 +25,21 @@ function renderFeedIntroHTML(content) {
   )
 }
 
+const CAT_TRAIL_POINTS = [
+  { x: 130, y: -50 },
+  { x: 260, y: -140 },
+  { x: 160, y: -280 },
+  { x: -30, y: -320 },
+  { x: -220, y: -240 },
+  { x: -320, y: -60 },
+  { x: -270, y: 130 },
+  { x: -140, y: 270 },
+  { x: 50, y: 320 },
+  { x: 240, y: 240 },
+  { x: 320, y: 100 },
+  { x: -80, y: -160 },
+]
+
 /**
  * OriginalMenu - iframe 原文工具栏的三点下拉菜单
  */
@@ -180,28 +195,17 @@ export default function Reader({
   const saveTimerRef = useRef(null)
   const feedIntroHTML = useMemo(() => renderFeedIntroHTML(feedIntro), [feedIntro])
 
-  const CAT_TRAIL_POINTS = [
-    { x: 130, y: -50 },
-    { x: 260, y: -140 },
-    { x: 160, y: -280 },
-    { x: -30, y: -320 },
-    { x: -220, y: -240 },
-    { x: -320, y: -60 },
-    { x: -270, y: 130 },
-    { x: -140, y: 270 },
-    { x: 50, y: 320 },
-    { x: 240, y: 240 },
-    { x: 320, y: 100 },
-    { x: -80, y: -160 },
-  ]
-
-  const floatingPositions = useMemo(() =>
-    CAT_TRAIL_POINTS.map((pt, i) => ({
-      x: pt.x + (Math.random() - 0.5) * 60,
-      y: pt.y + (Math.random() - 0.5) * 40,
+  const floatingPositions = useMemo(() => {
+    const rand = (n) => {
+      const x = Math.sin((catAnimKey + 1) * 100 + n) * 10000
+      return x - Math.floor(x)
+    }
+    return CAT_TRAIL_POINTS.map((pt, i) => ({
+      x: pt.x + (rand(i * 2) - 0.5) * 60,
+      y: pt.y + (rand(i * 2 + 1) - 0.5) * 40,
       delay: 1.0 + i * 1.5,
     }))
-  , [catAnimKey])
+  }, [catAnimKey])
 
   const handleCatClick = useCallback(async () => {
     clearTimeout(catTimerRef.current)

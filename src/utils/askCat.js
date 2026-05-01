@@ -283,7 +283,7 @@ No markdown fencing, no explanation outside the array.`
 export async function scoreArticles(articles, config) {
   const fallback = () => {
     const shuffled = [...articles].sort(() => Math.random() - 0.5)
-    return shuffled.slice(0, 12).map((a, i) => ({ article: a, reason: '' }))
+    return shuffled.slice(0, 12).map(a => ({ article: a, reason: '' }))
   }
 
   if (!isConfigValid(config) || articles.length <= 12) {
