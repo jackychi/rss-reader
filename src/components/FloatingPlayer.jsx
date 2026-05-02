@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { Play, Pause, Download, X, Minus, Maximize2, Copy, Check } from 'lucide-react'
-import { useAudioPlayer } from '../contexts/AudioPlayerContext'
+import { useAudioPlayer } from '../hooks/useAudioPlayer'
 import useAudioDrag from '../hooks/useAudioDrag'
 
 const formatTime = (seconds) => {

@@ -1,13 +1,6 @@
-import { createContext, useContext, useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { getArticleKey } from '../utils/articleKey'
-
-const AudioPlayerContext = createContext(null)
-
-export function useAudioPlayer() {
-  const ctx = useContext(AudioPlayerContext)
-  if (!ctx) throw new Error('useAudioPlayer must be used within AudioPlayerProvider')
-  return ctx
-}
+import { AudioPlayerContext } from './AudioPlayerContextCore'
 
 export function AudioPlayerProvider({ children, onUpdateAudioPosition }) {
   const [pipArticle, setPipArticle] = useState(null)

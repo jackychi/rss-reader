@@ -2,29 +2,9 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { X, ChevronRight, ExternalLink, FileText, Play, Pause, Download, Maximize2, Minimize2, Bookmark, BookmarkCheck, Rss, MoreHorizontal, Copy, Check, Send, Loader2, PictureInPicture2 } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
-import { marked } from 'marked'
-import DOMPurify from 'dompurify'
 import { CATREADER_API_URL } from '../utils/constants'
 import { parseChapters } from '../utils/parseChapters'
-import { getArticleKey } from '../utils/articleKey'
-import { useAudioPlayer } from '../contexts/AudioPlayerContext'
-
-function addCJKSpacing(text) {
-  if (!text) return text
-  return text
-    .replace(/([\u4e00-\u9fa5\u3040-\u309f\u30a0-\u30ff])([A-Za-z0-9])/g, '$1 $2')
-    .replace(/([A-Za-z0-9])([\u4e00-\u9fa5\u3040-\u309f\u30a0-\u30ff])/g, '$1 $2')
-}
-
-function renderFeedIntroHTML(content) {
-  const html = marked.parse(addCJKSpacing(content || ''), { breaks: false, gfm: true })
-  return DOMPurify.sanitize(html, {
-    ADD_ATTR: ['target', 'rel'],
-  }).replace(
-    /<a([^>]*?)href="(https?:\/\/[^"]+)"([^>]*?)>/g,
-    '<a$1href="$2"$3 target="_blank" rel="noopener noreferrer">'
-  )
-}
+import { useAudioPlayer } from '../hooks/useAudioPlayer'
 
 const CAT_TRAIL_POINTS = [
   { x: 130, y: -50 },
@@ -166,13 +146,24 @@ export default function Reader({
   onToggleReadingList,
   onNavigateToFeed,
   selectedFeed = null,
-  feedIntro = '',
-  feedIntroStatus = 'idle',
-  feedIntroError = null,
   onSelectArticle,
 }) {
   const pip = useAudioPlayer()
-  const pipControlled = !!(pip.pipArticle && selectedArticle && getArticleKey(pip.pipArticle) === getArticleKey(selectedArticle))
+  const {
+    activatePip,
+    audioDuration: pipAudioDuration,
+    audioProgress: pipAudioProgress,
+    cyclePlaybackRate: pipCyclePlaybackRate,
+    handleProgressClick: pipHandleProgressClick,
+    isPipActive,
+    isPipCollapsed,
+    isPlaying: pipIsPlaying,
+    lastPipProgressRef,
+    playbackRate: pipPlaybackRate,
+    seekToTime: pipSeekToTime,
+    togglePlay: pipTogglePlay,
+  } = pip
+  const pipControlled = pip.isPipPlayingArticle(selectedArticle)
 
   const [isPlaying, setIsPlaying] = useState(false)
   const [audioProgress, setAudioProgress] = useState(initialAudioPosition)
@@ -195,7 +186,6 @@ export default function Reader({
   const restoredArticleRef = useRef(null)
   const progressRAFRef = useRef(null)
   const saveTimerRef = useRef(null)
-  const feedIntroHTML = useMemo(() => renderFeedIntroHTML(feedIntro), [feedIntro])
 
   const floatingPositions = useMemo(() => {
     const rand = (n) => {
@@ -380,7 +370,7 @@ export default function Reader({
     playbackRate,
     audioDuration,
     pipControlled,
-    isPipActive: pip.isPipActive,
+    isPipActive,
   }
   useEffect(() => {
     return () => {
@@ -392,44 +382,44 @@ export default function Reader({
         s.article &&
         localPlayingRef.current
       ) {
-        pip.activatePip(s.article, s.audioSrc, s.chapters, localTimeRef.current, s.playbackRate, true, s.audioDuration)
+        activatePip(s.article, s.audioSrc, s.chapters, localTimeRef.current, s.playbackRate, true, s.audioDuration)
       }
     }
-  }, [])
+  }, [activatePip])
 
   const [prevPipControlled, setPrevPipControlled] = useState(pipControlled)
   if (prevPipControlled !== pipControlled) {
     setPrevPipControlled(pipControlled)
     if (prevPipControlled && !pipControlled) {
-      const t = pip.lastPipProgressRef.current
+      const t = lastPipProgressRef.current
       if (t > 0) setAudioProgress(t)
     }
   }
 
   useEffect(() => {
     if (!pipControlled && audioRef.current) {
-      const t = pip.lastPipProgressRef.current
+      const t = lastPipProgressRef.current
       if (t > 0 && Math.abs(audioRef.current.currentTime - t) > 1) {
         audioRef.current.currentTime = t
       }
     }
-  }, [pipControlled])
+  }, [lastPipProgressRef, pipControlled])
 
-  const effectivePlaying = pipControlled ? pip.isPlaying : isPlaying
-  const effectiveProgress = pipControlled ? pip.audioProgress : audioProgress
-  const effectiveDuration = pipControlled ? pip.audioDuration : audioDuration
-  const effectiveRate = pipControlled ? pip.playbackRate : playbackRate
-  const effectiveSeek = pipControlled ? pip.seekToTime : seekToTime
-  const effectiveCycleRate = pipControlled ? pip.cyclePlaybackRate : cyclePlaybackRate
-  const effectiveProgressClick = pipControlled ? pip.handleProgressClick : handleProgressClick
+  const effectivePlaying = pipControlled ? pipIsPlaying : isPlaying
+  const effectiveProgress = pipControlled ? pipAudioProgress : audioProgress
+  const effectiveDuration = pipControlled ? pipAudioDuration : audioDuration
+  const effectiveRate = pipControlled ? pipPlaybackRate : playbackRate
+  const effectiveSeek = pipControlled ? pipSeekToTime : seekToTime
+  const effectiveCycleRate = pipControlled ? pipCyclePlaybackRate : cyclePlaybackRate
+  const effectiveProgressClick = pipControlled ? pipHandleProgressClick : handleProgressClick
 
   const effectiveTogglePlay = () => {
-    if (pipControlled) return pip.togglePlay()
-    if (pip.isPipActive && !pipControlled && audioSrc) {
+    if (pipControlled) return pipTogglePlay()
+    if (isPipActive && !pipControlled && audioSrc) {
       const t = audioRef.current?.currentTime || audioProgress || 0
-      pip.activatePip(
+      activatePip(
         { ...selectedArticle, feedTitle: selectedFeed?.title },
-        audioSrc, chapters, t, playbackRate, pip.isPipCollapsed, audioDuration,
+        audioSrc, chapters, t, playbackRate, isPipCollapsed, audioDuration,
       )
       if (audioRef.current) audioRef.current.pause()
       return
@@ -801,7 +791,7 @@ export default function Reader({
                       <button
                         onClick={pipControlled ? undefined : () => {
                           const currentTime = audioRef.current?.currentTime || audioProgress
-                          pip.activatePip(
+                          activatePip(
                             { ...selectedArticle, feedTitle: selectedFeed?.title },
                             audioSrc,
                             chapters,

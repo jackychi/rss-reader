@@ -5,6 +5,8 @@ import DOMPurify from 'dompurify'
 import { getArticleKey } from '../utils/articleKey'
 import { quotes } from '../data/quotes'
 
+const randomQuote = quotes[Math.floor(Math.random() * quotes.length)]
+
 function addCJKSpacing(text) {
   if (!text) return text
   return text
@@ -46,7 +48,6 @@ export default function ArticleList({
   feedIntroStatus = 'idle',
   onAskCatArticle,
 }) {
-  const randomQuote = useMemo(() => quotes[Math.floor(Math.random() * quotes.length)], [])
   const [introExpanded, setIntroExpanded] = useState(true)
   const feedIntroHTML = useMemo(() => renderFeedIntroHTML(feedIntro), [feedIntro])
   const isSingleFeed = selectedFeed?.xmlUrl && selectedFeed.xmlUrl !== 'cached' && !selectedFeed.xmlUrl.startsWith('category:')
