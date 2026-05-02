@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback, Fragment } from 'react'
 import { MessageCircle, Settings, X, Square, Cat, Loader2, Copy, RotateCcw, Check, ArrowUp } from 'lucide-react'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
@@ -22,6 +22,24 @@ const STARTER_PROMPTS = [
   '翻译正文',
   '总结正文',
 ]
+
+function parseFollowUpQuestions(content) {
+  const lines = content.split('\n')
+  const questions = []
+  let firstQIdx = -1
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const m = lines[i].match(/^\[(?:\?|？)\]\s*(.+)/)
+    if (m) {
+      questions.unshift(m[1].trim())
+      firstQIdx = i
+    } else if (lines[i].trim() && questions.length > 0) {
+      break
+    }
+  }
+  if (questions.length === 0) return { content, followUpQuestions: [] }
+  const cleaned = lines.slice(0, firstQIdx).join('\n').trimEnd()
+  return { content: cleaned, followUpQuestions: questions.slice(0, 2) }
+}
 
 // 抽屉宽度可拖拽 + 持久化
 const DRAWER_WIDTH_KEY = 'rss-reader-askcat-width'
@@ -98,7 +116,7 @@ function renderAssistantHTML(content, articleLinks = null) {
   return withLinks.replace(/🔗\s*(<a[^>]*class="askcat-article-link")/g, '$1')
 }
 
-export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticle, onOpenArticle }) {
+export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticle, onOpenArticle, autoPrompt, onAutoPromptConsumed }) {
   const [showSettings, setShowSettings] = useState(false)
   const [config, setConfig] = useState(() => getLLMConfig())
   const [messages, setMessages] = useState([]) // {role: 'user'|'assistant', content, isError?}
@@ -205,6 +223,25 @@ export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticl
     }
   }, [isOpen, configValid])
 
+  // 文章卡片猫头按钮触发的自动总结:清空对话 → 发送预设 prompt
+  // 等待三个条件同时满足:
+  //   1. autoPrompt 已设置
+  //   2. 抽屉已打开 + config 已就绪
+  //   3. selectedArticle 已包含全文(hydrateSelectedArticle 异步完成后才有 content)
+  useEffect(() => {
+    if (!autoPrompt || !isOpen || !configValid) return
+    const hasContent = selectedArticle?.content || selectedArticle?.['content:encoded']
+    if (!hasContent) return
+    setMessages([])
+    setShowSettings(false)
+    contextByIdRef.current = new Map()
+    contextByLinkRef.current = new Map()
+    const prompt = autoPrompt.prompt
+    onAutoPromptConsumed?.()
+    setMessages([{ role: 'user', content: '正在为你解读这篇文章……' }])
+    sendToLLM(prompt, [])
+  }, [autoPrompt, isOpen, configValid, selectedArticle]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Outside-click 关抽屉(只在抽屉打开时挂 listener)
   // mousedown 而非 click:抢在 React click handler 之前决定关抽屉
   // 例外:点 Header 的 Ask Cat toggle 按钮不算 outside,否则按钮会"先关再开"失灵
@@ -283,10 +320,12 @@ export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticl
     setIsLoading(true)
     try {
       const reply = await callLLM(llmMessages, config, { signal: controller.signal })
+      const parsed = parseFollowUpQuestions(reply.content)
       setMessages((prev) => [...prev, {
         role: 'assistant',
-        content: reply.content,
+        content: parsed.content,
         reasoning: reply.reasoning || '',
+        followUpQuestions: parsed.followUpQuestions,
       }])
     } catch (err) {
       if (err?.name === 'AbortError') {
@@ -481,19 +520,23 @@ export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticl
               <EmptyState onPrompt={(p) => handleSend(p)} disabled={!configValid || !articles?.length} />
             ) : (
               messages.map((m, idx) => (
-                <MessageBubble
-                  key={idx}
-                  index={idx}
-                  message={m}
-                  articleLinks={contextByLinkRef.current}
-                  onRetry={handleRetryMessage}
-                  isLoading={isLoading}
-                />
+                <Fragment key={idx}>
+                  <MessageBubble
+                    index={idx}
+                    message={m}
+                    articleLinks={contextByLinkRef.current}
+                    onRetry={handleRetryMessage}
+                    isLoading={isLoading}
+                  />
+                  {idx === messages.length - 1 && !isLoading && m.role === 'assistant' && (
+                    <FollowUpQuestions questions={m.followUpQuestions} onAsk={(q) => handleSend(q)} />
+                  )}
+                </Fragment>
               ))
             )}
             {isLoading && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-muted)', fontSize: '12px' }}>
-                <Loader2 size={14} className="animate-spin" />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', fontSize: '13px', padding: '4px 0' }}>
+                <Cat size={28} className="askcat-thinking-cat" style={{ color: '#ff9500', flexShrink: 0 }} />
                 <span>思考中...</span>
               </div>
             )}
@@ -693,6 +736,31 @@ function MessageBubble({ message, articleLinks, index, onRetry, isLoading }) {
           </button>
         )}
       </div>
+    </div>
+  )
+}
+
+function FollowUpQuestions({ questions, onAsk }) {
+  if (!questions?.length) return null
+  return (
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '6px',
+      alignSelf: 'flex-start',
+      maxWidth: '95%',
+      width: '100%',
+    }}>
+      {questions.map((q, i) => (
+        <button
+          key={i}
+          onClick={() => onAsk(q)}
+          className="askcat-followup-btn"
+        >
+          <span className="askcat-followup-icon">›</span>
+          <span>{q}</span>
+        </button>
+      ))}
     </div>
   )
 }

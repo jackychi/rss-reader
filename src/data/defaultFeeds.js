@@ -112,6 +112,9 @@ export const defaultFeeds = [
       { title: "Garry Tan", xmlUrl: "http://localhost:3847/feed/garrytan" },
       { title: "Hasan Toor", xmlUrl: "http://localhost:3847/feed/hasantoxr" },
       { title: "Mike Tang", xmlUrl: "http://localhost:3847/feed/blackanger" },
+      { title: "Fenng", xmlUrl: "http://localhost:3847/feed/Fenng" },
+      { title: "Anthropic", xmlUrl: "http://localhost:3847/feed/AnthropicAI" },
+      { title: "Claude", xmlUrl: "http://localhost:3847/feed/claudeai" },
     ],
   },
   {

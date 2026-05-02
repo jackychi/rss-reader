@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
-import { Loader2, AlertCircle, Search, RefreshCw, CheckCheck, Rss, ChevronDown, ChevronUp } from 'lucide-react'
+import { Loader2, AlertCircle, Search, RefreshCw, CheckCheck, Rss, ChevronDown, ChevronUp, Cat } from 'lucide-react'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { getArticleKey } from '../utils/articleKey'
@@ -44,6 +44,7 @@ export default function ArticleList({
   isLoadingMore,
   feedIntro = '',
   feedIntroStatus = 'idle',
+  onAskCatArticle,
 }) {
   const randomQuote = useMemo(() => quotes[Math.floor(Math.random() * quotes.length)], [])
   const [introExpanded, setIntroExpanded] = useState(true)
@@ -319,13 +320,15 @@ export default function ArticleList({
                   if (introExpanded) setIntroExpanded(false)
                   onSelectArticle(article)
                 }}
+                className="article-card"
                 style={{
                   padding: '14px 16px',
                   borderBottom: '1px solid var(--border-color)',
                   cursor: 'pointer',
                   backgroundColor: isSelected ? 'var(--bg-tertiary)' : 'transparent',
                   borderLeft: isMatch ? '3px solid var(--accent-color)' : 'none',
-                  transition: 'background-color 0.15s ease'
+                  transition: 'background-color 0.15s ease',
+                  position: 'relative',
                 }}
                 onMouseEnter={(e) => e.currentTarget.style.backgroundColor = isSelected ? 'var(--bg-tertiary)' : 'var(--bg-secondary)'}
                 onMouseLeave={(e) => {
@@ -345,6 +348,32 @@ export default function ArticleList({
                   <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{article.feedTitle}</span>
                   <span style={{ color: 'var(--text-muted)' }}>·</span>
                   <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{formatDate(article.isoDate)}</span>
+                  {onAskCatArticle && (
+                    <button
+                      className="askcat-card-btn"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onAskCatArticle(article)
+                      }}
+                      title="AI 总结这篇文章"
+                      style={{
+                        marginLeft: 'auto',
+                        padding: '2px',
+                        border: 'none',
+                        backgroundColor: 'transparent',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        borderRadius: '4px',
+                        opacity: 0,
+                        transition: 'opacity 0.15s ease, background-color 0.15s ease',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Cat size={16} style={{ color: '#ff9500' }} />
+                    </button>
+                  )}
                 </div>
                 <h3 style={{
                   fontSize: '15px',

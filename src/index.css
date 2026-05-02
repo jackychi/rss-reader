@@ -240,10 +240,10 @@ body {
 
 .cat-icon {
   cursor: pointer;
-  transition: transform 0.2s ease;
+  transition: scale 0.2s ease;
 }
 .cat-icon:hover {
-  transform: scale(1.08);
+  scale: 1.08;
 }
 
 .cat-wander {
@@ -253,8 +253,7 @@ body {
 .cat-wiggle {
   animation:
     cat-float-y 4s ease-in-out infinite,
-    cat-float-rotate 6s ease-in-out infinite,
-    cat-float-scale 5s ease-in-out infinite;
+    cat-float-rotate 6s ease-in-out infinite;
 }
 
 .cat-wander.cat-ending {
@@ -263,8 +262,7 @@ body {
 .cat-ending .cat-wiggle {
   animation:
     cat-float-y 4s ease-in-out infinite,
-    cat-float-rotate 6s ease-in-out infinite,
-    cat-float-scale 5s ease-in-out infinite;
+    cat-float-rotate 6s ease-in-out infinite;
   opacity: 1;
   transition: opacity 2s ease-out;
 }
@@ -291,19 +289,14 @@ body {
 }
 
 @keyframes cat-float-y {
-  0%, 100% { transform: translateY(0); }
-  50%      { transform: translateY(-10px); }
+  0%, 100% { translate: 0 0; }
+  50%      { translate: 0 -10px; }
 }
 
 @keyframes cat-float-rotate {
-  0%, 100% { transform: rotate(0deg); }
-  25%      { transform: rotate(3deg); }
-  75%      { transform: rotate(-3deg); }
-}
-
-@keyframes cat-float-scale {
-  0%, 100% { transform: scale(1); }
-  50%      { transform: scale(1.04); }
+  0%, 100% { rotate: 0deg; }
+  25%      { rotate: 3deg; }
+  75%      { rotate: -3deg; }
 }
 
 @keyframes cat-return {
@@ -317,9 +310,9 @@ body {
 }
 
 @keyframes cat-nudge {
-  0%, 100% { transform: rotate(0deg); }
-  25%      { transform: rotate(-8deg); }
-  75%      { transform: rotate(8deg); }
+  0%, 100% { rotate: 0deg; }
+  25%      { rotate: -8deg; }
+  75%      { rotate: 8deg; }
 }
 
 /* ============ 浮动推荐卡片 ============ */
@@ -688,6 +681,23 @@ kbd {
   box-shadow: 0 1px 0 var(--border-color);
 }
 
+/* ============ AskCat 思考中猫头 Y 轴旋转 ============ */
+@keyframes askcat-flip-y {
+  0%   { transform: rotateY(0deg); }
+  100% { transform: rotateY(360deg); }
+}
+.askcat-thinking-cat {
+  animation: askcat-flip-y 1.5s ease-in-out infinite;
+}
+
+/* ============ 文章卡片猫头按钮(hover 显示) ============ */
+.article-card:hover .askcat-card-btn {
+  opacity: 1 !important;
+}
+.askcat-card-btn:hover {
+  background-color: var(--bg-tertiary) !important;
+}
+
 /* ============ Ask Cat 富文本渲染 ============ */
 
 /* 答案区:段间距 > 行间距,标题/列表/引用/代码完整样式 */
@@ -858,6 +868,39 @@ kbd {
 .askcat-actions > button:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+/* 追问建议按钮 */
+.askcat-followup-btn {
+  display: flex;
+  align-items: baseline;
+  gap: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  line-height: 1.5;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s, color 0.15s;
+}
+.askcat-followup-btn:hover {
+  border-color: var(--accent-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+.askcat-followup-icon {
+  flex-shrink: 0;
+  margin-right: 6px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--accent-color);
+  opacity: 0.7;
+}
+.askcat-followup-btn:hover .askcat-followup-icon {
+  opacity: 1;
 }
 
 /* 输入区:textarea 自适应高度 + 圆形操作按钮 */

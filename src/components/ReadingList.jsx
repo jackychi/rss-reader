@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { FileText, Link2, BookmarkCheck, MoreHorizontal, Copy, Check, Send } from 'lucide-react'
+import { FileText, Link2, BookmarkCheck, MoreHorizontal, Copy, Check, Send, Cat } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 import { getArticleKey } from '../utils/articleKey'
@@ -14,7 +14,8 @@ export default function ReadingList({
   onRemoveArticle,
   getArticleImage,
   formatDate,
-  selectedArticle
+  selectedArticle,
+  onAskCatArticle,
 }) {
   const rowRefs = useRef(new Map())
 
@@ -71,6 +72,7 @@ export default function ReadingList({
               onRemoveArticle={onRemoveArticle}
               getArticleImage={getArticleImage}
               formatDate={formatDate}
+              onAskCatArticle={onAskCatArticle}
               rowRef={(node) => {
                 if (node) rowRefs.current.set(articleKey, node)
                 else rowRefs.current.delete(articleKey)
@@ -92,6 +94,7 @@ function ReadingListCard({
   onRemoveArticle,
   getArticleImage,
   formatDate,
+  onAskCatArticle,
   rowRef,
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
@@ -169,6 +172,22 @@ function ReadingListCard({
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '10px' }}>
         {/* 左侧图标组 */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          {onAskCatArticle && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onAskCatArticle(article) }}
+              title="AI 总结这篇文章"
+              style={{
+                padding: '6px', borderRadius: '6px', border: 'none',
+                backgroundColor: 'transparent', color: '#ff9500',
+                cursor: 'pointer', display: 'inline-flex', alignItems: 'center',
+                transition: 'background-color 0.15s ease',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-secondary)' }}
+              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}
+            >
+              <Cat size={16} />
+            </button>
+          )}
           <a
             href={article.link}
             target="_blank"

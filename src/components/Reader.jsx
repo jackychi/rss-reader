@@ -6,6 +6,7 @@ import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { CATREADER_API_URL } from '../utils/constants'
 import { parseChapters } from '../utils/parseChapters'
+import { getArticleKey } from '../utils/articleKey'
 import { useAudioPlayer } from '../contexts/AudioPlayerContext'
 
 function addCJKSpacing(text) {
@@ -171,7 +172,7 @@ export default function Reader({
   onSelectArticle,
 }) {
   const pip = useAudioPlayer()
-  const pipControlled = pip.isPipPlayingArticle(selectedArticle)
+  const pipControlled = !!(pip.pipArticle && selectedArticle && getArticleKey(pip.pipArticle) === getArticleKey(selectedArticle))
 
   const [isPlaying, setIsPlaying] = useState(false)
   const [audioProgress, setAudioProgress] = useState(initialAudioPosition)
@@ -184,6 +185,7 @@ export default function Reader({
   const [showFloating, setShowFloating] = useState(false)
   const [isLoadingRecs, setIsLoadingRecs] = useState(false)
   const catTimerRef = useRef(null)
+  const catWanderRef = useRef(null)
   const floatingTimerRef = useRef(null)
   const floatingAbortRef = useRef(null)
   const audioRef = useRef(null)
@@ -211,10 +213,15 @@ export default function Reader({
     clearTimeout(catTimerRef.current)
     clearTimeout(floatingTimerRef.current)
     floatingAbortRef.current?.abort()
-    setCatAnimating(true)
     setCatAnimKey(k => k + 1)
     setFloatingArticles([])
     setShowFloating(false)
+    if (catWanderRef.current) {
+      catWanderRef.current.classList.remove('cat-wander')
+      void catWanderRef.current.offsetHeight
+      catWanderRef.current.classList.add('cat-wander')
+    }
+    setCatAnimating(true)
     catTimerRef.current = setTimeout(() => setCatAnimating(false), 24000)
 
     setIsLoadingRecs(true)
@@ -371,6 +378,7 @@ export default function Reader({
     audioSrc,
     chapters,
     playbackRate,
+    audioDuration,
     pipControlled,
     isPipActive: pip.isPipActive,
   }
@@ -384,10 +392,28 @@ export default function Reader({
         s.article &&
         localPlayingRef.current
       ) {
-        pip.activatePip(s.article, s.audioSrc, s.chapters, localTimeRef.current, s.playbackRate, true)
+        pip.activatePip(s.article, s.audioSrc, s.chapters, localTimeRef.current, s.playbackRate, true, s.audioDuration)
       }
     }
   }, [])
+
+  const [prevPipControlled, setPrevPipControlled] = useState(pipControlled)
+  if (prevPipControlled !== pipControlled) {
+    setPrevPipControlled(pipControlled)
+    if (prevPipControlled && !pipControlled) {
+      const t = pip.lastPipProgressRef.current
+      if (t > 0) setAudioProgress(t)
+    }
+  }
+
+  useEffect(() => {
+    if (!pipControlled && audioRef.current) {
+      const t = pip.lastPipProgressRef.current
+      if (t > 0 && Math.abs(audioRef.current.currentTime - t) > 1) {
+        audioRef.current.currentTime = t
+      }
+    }
+  }, [pipControlled])
 
   const effectivePlaying = pipControlled ? pip.isPlaying : isPlaying
   const effectiveProgress = pipControlled ? pip.audioProgress : audioProgress
@@ -403,7 +429,7 @@ export default function Reader({
       const t = audioRef.current?.currentTime || audioProgress || 0
       pip.activatePip(
         { ...selectedArticle, feedTitle: selectedFeed?.title },
-        audioSrc, chapters, t, playbackRate, pip.isPipCollapsed,
+        audioSrc, chapters, t, playbackRate, pip.isPipCollapsed, audioDuration,
       )
       if (audioRef.current) audioRef.current.pause()
       return
@@ -772,35 +798,37 @@ export default function Reader({
                       >
                         <Download size={14} />
                       </a>
-                      {!pipControlled && (
-                        <button
-                          onClick={() => {
-                            const currentTime = audioRef.current?.currentTime || audioProgress
-                            pip.activatePip(
-                              { ...selectedArticle, feedTitle: selectedFeed?.title },
-                              audioSrc,
-                              chapters,
-                              currentTime,
-                              playbackRate,
-                            )
-                            if (audioRef.current) audioRef.current.pause()
-                          }}
-                          title="画中画"
-                          style={{
-                            padding: '4px 8px',
-                            borderRadius: '4px',
-                            border: '1px solid var(--border-color)',
-                            backgroundColor: 'var(--bg-tertiary)',
-                            color: 'var(--text-secondary)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            cursor: 'pointer',
-                            flexShrink: 0,
-                          }}
-                        >
-                          <PictureInPicture2 size={14} />
-                        </button>
-                      )}
+                      <button
+                        onClick={pipControlled ? undefined : () => {
+                          const currentTime = audioRef.current?.currentTime || audioProgress
+                          pip.activatePip(
+                            { ...selectedArticle, feedTitle: selectedFeed?.title },
+                            audioSrc,
+                            chapters,
+                            currentTime,
+                            playbackRate,
+                            false,
+                            audioDuration,
+                          )
+                          if (audioRef.current) audioRef.current.pause()
+                        }}
+                        disabled={pipControlled}
+                        title="画中画"
+                        style={{
+                          padding: '4px 8px',
+                          borderRadius: '4px',
+                          border: '1px solid var(--border-color)',
+                          backgroundColor: 'var(--bg-tertiary)',
+                          color: pipControlled ? 'var(--text-muted)' : 'var(--text-secondary)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          cursor: pipControlled ? 'default' : 'pointer',
+                          flexShrink: 0,
+                          opacity: pipControlled ? 0.5 : 1,
+                        }}
+                      >
+                        <PictureInPicture2 size={14} />
+                      </button>
                     </div>
                   )}
 
@@ -951,7 +979,7 @@ export default function Reader({
             <div style={{ position: 'relative', width: '100%', height: '100%' }}>
               <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '20px', zIndex: 2, pointerEvents: 'none' }}>
                 <div
-                  key={catAnimKey}
+                  ref={catWanderRef}
                   className={catAnimating ? 'cat-wander' : ''}
                   style={{ cursor: 'pointer', pointerEvents: 'auto' }}
                   onClick={() => { setCatIntroNudge(false); handleCatClick(); }}
@@ -979,7 +1007,7 @@ export default function Reader({
                     fontSize: '13px',
                     margin: 0,
                   }}>{isLoadingRecs ? '正在挑选好文章...' : '选择一篇文章开始阅读吧'}</p>
-                  {isLoadingRecs && <Loader2 size={16} className="animate-spin" style={{ color: 'var(--text-muted)', marginTop: '6px' }} />}
+                  <Loader2 size={16} className="animate-spin" style={{ color: 'var(--text-muted)', marginTop: '6px', opacity: isLoadingRecs ? 1 : 0 }} />
                 </div>
               </div>
 

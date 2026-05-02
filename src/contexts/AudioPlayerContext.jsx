@@ -24,6 +24,7 @@ export function AudioPlayerProvider({ children, onUpdateAudioPosition }) {
   const lastSavedTimeRef = useRef(0)
   const saveTimerRef = useRef(null)
   const pipArticleRef = useRef(null)
+  const seekingRef = useRef(false)
 
   useEffect(() => {
     pipArticleRef.current = pipArticle
@@ -42,27 +43,39 @@ export function AudioPlayerProvider({ children, onUpdateAudioPosition }) {
     return getArticleKey(article) === getArticleKey(pipArticleRef.current)
   }, [])
 
-  const activatePip = useCallback((article, audioSrc, chapters, currentTime, rate, collapsed = false) => {
+  const activatePip = useCallback((article, audioSrc, chapters, currentTime, rate, collapsed = false, duration = 0) => {
     setPipArticle(article)
     setPipAudioSrc(audioSrc)
     setPipChapters(chapters || [])
     setAudioProgress(currentTime || 0)
+    setAudioDuration(duration || 0)
     setPlaybackRate(rate || 1)
     setIsPipCollapsed(collapsed)
     lastSavedTimeRef.current = currentTime || 0
 
+    seekingRef.current = true
     requestAnimationFrame(() => {
       const el = audioRef.current
-      if (!el) return
+      if (!el) { seekingRef.current = false; return }
       el.src = audioSrc
       el.playbackRate = rate || 1
+      const onSeekReady = () => {
+        el.removeEventListener('seeked', onSeekReady)
+        el.removeEventListener('playing', onSeekReady)
+        seekingRef.current = false
+      }
+      el.addEventListener('seeked', onSeekReady)
+      el.addEventListener('playing', onSeekReady)
       el.currentTime = currentTime || 0
-      el.play().catch(() => {})
+      el.play().catch(() => { seekingRef.current = false })
     })
   }, [])
 
+  const lastPipProgressRef = useRef(0)
+
   const deactivatePip = useCallback(() => {
     const el = audioRef.current
+    lastPipProgressRef.current = el?.currentTime || 0
     if (el && pipArticleRef.current && onUpdateAudioPosition) {
       onUpdateAudioPosition(pipArticleRef.current, el.currentTime)
     }
@@ -127,9 +140,11 @@ export function AudioPlayerProvider({ children, onUpdateAudioPosition }) {
   }, [onUpdateAudioPosition])
 
   const onAudioTimeUpdate = useCallback(() => {
+    if (seekingRef.current) return
     if (!progressRAFRef.current) {
       progressRAFRef.current = requestAnimationFrame(() => {
         progressRAFRef.current = null
+        if (seekingRef.current) return
         const t = audioRef.current?.currentTime || 0
         setAudioProgress(t)
       })
@@ -166,6 +181,7 @@ export function AudioPlayerProvider({ children, onUpdateAudioPosition }) {
     seekToTime,
     handleProgressClick,
     cyclePlaybackRate,
+    lastPipProgressRef,
   }
 
   return (
