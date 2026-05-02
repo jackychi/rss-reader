@@ -456,7 +456,7 @@ export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticl
       <div style={{
         display: 'flex',
         alignItems: 'center',
-        padding: '10px 12px',
+        padding: '10px 28px',
         borderBottom: '1px solid var(--border-color)',
         gap: '8px',
       }}>
@@ -500,7 +500,7 @@ export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticl
       ) : (
         <>
           {!configValid && (
-            <div style={{ padding: '12px', backgroundColor: 'var(--bg-secondary)', fontSize: '12px', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-color)' }}>
+            <div style={{ padding: '12px 28px', backgroundColor: 'var(--bg-secondary)', fontSize: '13px', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-color)' }}>
               ⚠️ 还没读取到 LLM 配置。请确认本机 .env.local 已配置 Base URL / API Key / Model。
             </div>
           )}
@@ -510,10 +510,10 @@ export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticl
             style={{
               flex: 1,
               overflowY: 'auto',
-              padding: '12px',
+              padding: '20px 28px',
               display: 'flex',
               flexDirection: 'column',
-              gap: '10px',
+              gap: '42px',
             }}
           >
             {messages.length === 0 ? (
@@ -689,9 +689,9 @@ function MessageBubble({ message, articleLinks, index, onRetry, isLoading }) {
         <div style={{
           backgroundColor: 'var(--accent-color)',
           color: '#fff',
-          padding: '8px 12px',
+          padding: '10px 14px',
           borderRadius: '12px',
-          fontSize: '13px',
+          fontSize: '14px',
           whiteSpace: 'pre-wrap',
           wordBreak: 'break-word',
         }}>
@@ -706,13 +706,13 @@ function MessageBubble({ message, articleLinks, index, onRetry, isLoading }) {
       className="askcat-bubble"
       style={{
         alignSelf: 'flex-start',
-        maxWidth: '95%',
-        backgroundColor: message.isError ? '#fee2e2' : 'var(--bg-secondary)',
+        maxWidth: '100%',
+        backgroundColor: message.isError ? '#fee2e2' : 'transparent',
         color: message.isError ? '#991b1b' : 'var(--text-primary)',
-        padding: '10px 12px',
-        borderRadius: '12px',
-        fontSize: '13px',
-        lineHeight: 1.7,
+        padding: message.isError ? '10px 12px' : '0',
+        borderRadius: message.isError ? '12px' : '0',
+        fontSize: '14.5px',
+        lineHeight: 1.8,
         wordBreak: 'break-word',
       }}
     >
@@ -746,10 +746,11 @@ function FollowUpQuestions({ questions, onAsk }) {
     <div style={{
       display: 'flex',
       flexDirection: 'column',
-      gap: '6px',
+      gap: '2px',
       alignSelf: 'flex-start',
       maxWidth: '95%',
       width: '100%',
+      marginTop: '-34px',
     }}>
       {questions.map((q, i) => (
         <button
@@ -779,7 +780,7 @@ function SettingsPanel({ draft, onDraftChange, onReload, onSave, onClose, loadSt
     outline: 'none',
   }
   return (
-    <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '12px' }}>
+    <div style={{ padding: '16px 28px', display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '12px' }}>
       <div style={{ color: 'var(--text-secondary)', lineHeight: 1.5, backgroundColor: 'var(--bg-secondary)', padding: '8px', borderRadius: '4px' }}>
         当前 LLM 配置直接读取自本机 .env.local。配置修改后点击重新读取即可生效。
       </div>

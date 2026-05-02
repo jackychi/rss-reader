@@ -1619,6 +1619,7 @@ function App() {
             feedIntroStatus={feedIntroStatus}
             feedIntroError={feedIntroError}
             onSelectArticle={handleSelectArticle}
+            onAskCatArticle={handleAskCatArticle}
           />
         )}
       </div>

@@ -775,7 +775,7 @@ kbd {
 .askcat-answer hr {
   margin: 1em 0;
   border: 0;
-  border-top: 1px solid var(--border-color);
+  border-top: none;
 }
 
 .askcat-answer strong { font-weight: 600; }
@@ -876,18 +876,17 @@ kbd {
   align-items: baseline;
   gap: 0;
   padding: 8px 12px;
-  border: 1px solid var(--border-color);
+  border: none;
   border-radius: 10px;
-  background: var(--bg-primary);
+  background: transparent;
   color: var(--text-secondary);
   font-size: 12.5px;
   line-height: 1.5;
   text-align: left;
   cursor: pointer;
-  transition: border-color 0.15s, background-color 0.15s, color 0.15s;
+  transition: background-color 0.15s, color 0.15s;
 }
 .askcat-followup-btn:hover {
-  border-color: var(--accent-color);
   background: var(--bg-secondary);
   color: var(--text-primary);
 }
@@ -905,19 +904,19 @@ kbd {
 
 /* 输入区:textarea 自适应高度 + 圆形操作按钮 */
 .askcat-input-area {
-  border-top: 1px solid var(--border-color);
-  padding: 10px 12px;
+  border-top: none;
+  padding: 16px 28px 18px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   position: relative;
 }
 .askcat-input-area textarea {
   flex: 1;
-  padding: 10px 12px;
+  padding: 10px 14px;
   border: 1px solid var(--border-color);
   border-radius: 12px;
-  background-color: var(--bg-secondary);
+  background-color: var(--bg-primary);
   color: var(--text-primary);
   font-size: 13px;
   font-family: inherit;
@@ -928,21 +927,26 @@ kbd {
   max-height: 240px;
   overflow-y: auto;
   scrollbar-width: none;
-  transition: border-color 0.15s ease;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.04);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.askcat-input-area textarea:focus {
+  box-shadow: 0 3px 12px rgba(0,0,0,0.08), 0 1px 4px rgba(0,0,0,0.05);
 }
 .askcat-input-area textarea::-webkit-scrollbar {
   display: none;
 }
 .askcat-input-area textarea:focus {
   border-color: var(--accent-color);
+  box-shadow: 0 3px 12px rgba(0,0,0,0.08), 0 1px 4px rgba(0,0,0,0.05);
 }
 .askcat-input-area textarea:disabled {
   opacity: 0.5;
 }
 .askcat-input-hint {
   position: absolute;
-  bottom: 16px;
-  right: 60px;
+  bottom: 20px;
+  right: 80px;
   font-size: 11px;
   color: var(--text-muted);
   opacity: 0;
@@ -954,15 +958,16 @@ kbd {
 }
 .askcat-action-btn {
   flex-shrink: 0;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   border: none;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: background-color 0.15s ease, opacity 0.15s ease;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.05);
+  transition: background-color 0.15s ease, opacity 0.15s ease, box-shadow 0.15s ease;
 }
 .askcat-action-btn--send {
   background-color: var(--accent-color);

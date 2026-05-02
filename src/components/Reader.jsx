@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
-import { X, ChevronRight, ExternalLink, FileText, Play, Pause, Download, Maximize2, Minimize2, Bookmark, BookmarkCheck, Rss, MoreHorizontal, Copy, Check, Send, Loader2, PictureInPicture2 } from 'lucide-react'
+import { X, ChevronRight, ExternalLink, FileText, Play, Pause, Download, Maximize2, Minimize2, Bookmark, BookmarkCheck, Rss, MoreHorizontal, Copy, Check, Send, Loader2, PictureInPicture2, Cat } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 import { CATREADER_API_URL } from '../utils/constants'
@@ -147,6 +147,7 @@ export default function Reader({
   onNavigateToFeed,
   selectedFeed = null,
   onSelectArticle,
+  onAskCatArticle,
 }) {
   const pip = useAudioPlayer()
   const {
@@ -641,6 +642,29 @@ export default function Reader({
                           查看原文
                         </button>
                       )}
+                      {onAskCatArticle && (
+                        <button
+                          onClick={() => onAskCatArticle(selectedArticle)}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            background: 'none',
+                            border: 'none',
+                            color: 'var(--text-muted)',
+                            cursor: 'pointer',
+                            fontSize: '13px',
+                            padding: '4px 8px',
+                            borderRadius: '4px',
+                          }}
+                          onMouseEnter={(e) => { e.currentTarget.style.color = '#ff9500' }}
+                          onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)' }}
+                          title="Ask Cat 总结"
+                        >
+                          <Cat size={14} style={{ color: '#ff9500' }} />
+                          Ask Cat
+                        </button>
+                      )}
                     </div>
                   )}
 
@@ -948,6 +972,29 @@ export default function Reader({
                           }}
                         >
                           查看原文
+                        </button>
+                      )}
+                      {onAskCatArticle && (
+                        <button
+                          onClick={() => onAskCatArticle(selectedArticle)}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            background: 'none',
+                            border: 'none',
+                            color: 'var(--text-muted)',
+                            cursor: 'pointer',
+                            fontSize: '13px',
+                            padding: '4px 8px',
+                            borderRadius: '4px',
+                          }}
+                          onMouseEnter={(e) => { e.currentTarget.style.color = '#ff9500' }}
+                          onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)' }}
+                          title="Ask Cat 总结"
+                        >
+                          <Cat size={14} style={{ color: '#ff9500' }} />
+                          Ask Cat
                         </button>
                       )}
                     </div>
