@@ -1027,3 +1027,58 @@ kbd {
 .askcat-thinking-body > *:first-child { margin-top: 0; }
 .askcat-thinking-body > *:last-child { margin-bottom: 0; }
 .askcat-thinking-body p { margin: 0 0 0.5em 0; }
+
+/* ── 斜杠指令菜单 ── */
+.slash-menu {
+  position: absolute;
+  bottom: 100%;
+  left: 28px;
+  right: 74px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.10), 0 -1px 6px rgba(0,0,0,0.06);
+  padding: 6px 0;
+  margin-bottom: 8px;
+  z-index: 10;
+  scrollbar-width: thin;
+}
+.slash-menu-group + .slash-menu-group {
+  border-top: 1px solid var(--border-color);
+  margin-top: 4px;
+  padding-top: 4px;
+}
+.slash-menu-group-label {
+  padding: 4px 14px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.slash-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
+  transition: background-color 0.1s;
+}
+.slash-menu-item:hover,
+.slash-menu-item--active {
+  background-color: var(--bg-secondary);
+}
+.slash-menu-item-command {
+  font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
+  font-size: 12px;
+  color: var(--accent-color);
+  flex-shrink: 0;
+}
+.slash-menu-item-label {
+  color: var(--text-secondary);
+  font-size: 12.5px;
+}

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Rss, RefreshCw, Upload, PanelLeft, Sun, Moon, CloudSun, WifiOff, UserRound, Copy, Check, MessageCircle, Keyboard } from 'lucide-react'
+import { Rss, RefreshCw, PanelLeft, Sun, Moon, CloudSun, WifiOff, UserRound, Copy, Check, Cat, Keyboard } from 'lucide-react'
 
 const themes = [
   { id: 'light', name: '浅色', icon: Sun },
@@ -362,31 +362,24 @@ export default function Header({
           data-askcat-toggle
           onClick={onToggleAskCat}
           style={{
-            padding: '6px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            padding: '4px 10px',
             borderRadius: '6px',
             backgroundColor: isAskCatOpen ? 'var(--bg-tertiary)' : 'transparent',
             border: 'none',
             cursor: 'pointer',
+            fontSize: '13px',
+            color: 'var(--text-secondary)',
           }}
-          title="Ask Cat — 基于你订阅源文章的 LLM 助手"
+          title="AskCat — 基于你订阅源文章的 LLM 助手"
           onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'}
           onMouseLeave={(e) => { if (!isAskCatOpen) e.currentTarget.style.backgroundColor = 'transparent' }}
         >
-          <MessageCircle size={18} />
+          <Cat size={16} style={{ color: '#ff9500' }} />
+          <span>AskCat</span>
         </button>
-
-        <label style={{ padding: '6px', borderRadius: '6px', cursor: 'pointer', backgroundColor: 'transparent' }} title="Import OPML"
-          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'}
-          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-        >
-          <Upload size={18} />
-          <input
-            type="file"
-            accept=".opml,.xml"
-            onChange={onImportOPML}
-            className="hidden"
-          />
-        </label>
 
         {/* 主题切换按钮 */}
         <div ref={menuRef} style={{ position: 'relative' }}>

@@ -369,6 +369,10 @@ export const defaultFeeds = [
     category: "视频",
     feeds: [
       {
+        title: "Y Combinator",
+        xmlUrl: "https://rsshub.rssforever.com/youtube/user/@ycombinator",
+      },
+      {
         title: "汀见(原:大脸撑在小胸上)",
         xmlUrl:
           "https://rsshub-eta-topaz-88.vercel.app/youtube/channel/UCv8djBlOdCZWZ-7Nal-3pJQ",

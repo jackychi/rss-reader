@@ -1319,7 +1319,8 @@ function App() {
     setShowOriginal(false)
     setReaderVisible(true)
     markAsRead(article)
-  }, [markAsRead])
+    hydrateSelectedArticle(article)
+  }, [markAsRead, hydrateSelectedArticle])
 
   const ASKCAT_SUMMARY_PROMPT = '请为这篇文章提供一个清晰、简洁的总结。先给个一句话介绍，然后提炼核心观点和总结。默认读者已经对相关背景有一定了解。为了可读性，多用短句和自然过渡，避免长句、过多从句和分号。\n\n【重要】在回答末尾，必须另起两行，给出恰好两个读者可能感兴趣的后续追问。每行以 [?] 开头，格式如下：\n[?] 这个策略对其他科技公司有什么启发？\n[?] 历史上有没有类似的案例？\n要求：必须恰好两个，问题要具体、有启发性，和文章内容紧密相关。'
 
@@ -1630,6 +1631,8 @@ function App() {
         onClose={() => setIsAskCatOpen(false)}
         articles={articles}
         selectedArticle={selectedArticle}
+        selectedFeed={selectedFeed}
+        feeds={feeds}
         onOpenArticle={handleOpenArticleFromAskCat}
         autoPrompt={askCatAutoPrompt}
         onAutoPromptConsumed={() => setAskCatAutoPrompt(null)}

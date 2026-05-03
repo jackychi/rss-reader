@@ -12,6 +12,8 @@ import {
   callLLM,
 } from '../utils/askCat'
 import { CATREADER_API_URL } from '../utils/constants'
+import { getAvailableCommands, filterCommands, buildHelpMessage, COMMANDS } from '../utils/slashCommands'
+import SlashCommandMenu from './SlashCommandMenu'
 
 // 起手建议,空对话时展示。覆盖三类典型用法:
 //   全局浏览(1/2)、分类视图(3)、单篇操作(4/5,需要先在 Reader 里打开文章)
@@ -116,7 +118,7 @@ function renderAssistantHTML(content, articleLinks = null) {
   return withLinks.replace(/🔗\s*(<a[^>]*class="askcat-article-link")/g, '$1')
 }
 
-export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticle, onOpenArticle, autoPrompt, onAutoPromptConsumed }) {
+export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticle, selectedFeed, feeds, onOpenArticle, autoPrompt, onAutoPromptConsumed }) {
   const [showSettings, setShowSettings] = useState(false)
   const [config, setConfig] = useState(() => getLLMConfig())
   const [messages, setMessages] = useState([]) // {role: 'user'|'assistant', content, isError?}
@@ -136,6 +138,30 @@ export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticl
   const drawerRef = useRef(null)
   const prevIsOpenRef = useRef(isOpen)
   const abortRef = useRef(null)
+  const [slashMenuVisible, setSlashMenuVisible] = useState(false)
+  const slashMenuRef = useRef(null)
+
+  const feedTitle = selectedFeed?.title || selectedArticle?.feedTitle || null
+  const currentCategory = selectedFeed?.xmlUrl?.startsWith('category:') ? selectedFeed.category : null
+  const feedsByCategory = useMemo(() => {
+    if (!feeds) return {}
+    const map = {}
+    for (const cat of feeds) {
+      if (cat.category && cat.feeds) map[cat.category] = cat.feeds
+    }
+    return map
+  }, [feeds])
+
+  const slashCommands = useMemo(() =>
+    getAvailableCommands({ selectedArticle, currentFeed: feedTitle, currentCategory, articles, feedsByCategory }),
+    [selectedArticle, feedTitle, currentCategory, articles, feedsByCategory]
+  )
+
+  const slashQuery = useMemo(() => {
+    if (!slashMenuVisible) return ''
+    const m = input.match(/^\/(\S*)$/)
+    return m ? m[1] : ''
+  }, [input, slashMenuVisible])
 
   const showCitationToast = useCallback((title) => {
     setCitationToast(title)
@@ -343,10 +369,28 @@ export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticl
     }
   }, [configValid, articles, config, selectedArticle, contextByIdRef, contextByLinkRef])
 
+  const handleSlashSelect = useCallback((cmd) => {
+    setSlashMenuVisible(false)
+    setInput('')
+    if (cmd.id === 'help') {
+      const helpContent = buildHelpMessage(COMMANDS, slashCommands)
+      setMessages(prev => [
+        ...prev,
+        { role: 'user', content: cmd.command },
+        { role: 'assistant', content: helpContent },
+      ])
+      return
+    }
+    if (cmd.resolvedPrompt) {
+      const history = messages.map(m => ({ role: m.role, content: m.content }))
+      setMessages(prev => [...prev, { role: 'user', content: cmd.label }])
+      sendToLLM(cmd.resolvedPrompt, history)
+    }
+  }, [slashCommands, messages, sendToLLM])
+
   const handleSend = useCallback(async (overrideInput) => {
     const question = (overrideInput ?? input).trim()
     if (!question || isLoading) return
-    // 先把当前 messages 快照成 history,再 setMessages 加 user(避免 LLM history 里混 user 自己)
     const history = messages.map((m) => ({ role: m.role, content: m.content }))
     setMessages((prev) => [...prev, { role: 'user', content: question }])
     setInput('')
@@ -405,9 +449,23 @@ export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticl
   }, [contextByIdRef, contextByLinkRef, onOpenArticle, showCitationToast])
 
   const handleKeyDown = (e) => {
+    if (slashMenuVisible && slashMenuRef.current) {
+      const handled = slashMenuRef.current.__handleKeyDown(e)
+      if (handled) return
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSend()
+    }
+  }
+
+  const handleInputChange = (e) => {
+    const val = e.target.value
+    setInput(val)
+    if (val.match(/^\/\S*$/) && !isLoading) {
+      setSlashMenuVisible(true)
+    } else {
+      setSlashMenuVisible(false)
     }
   }
 
@@ -560,12 +618,20 @@ export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticl
           )}
 
           <div className="askcat-input-area">
+            <SlashCommandMenu
+              ref={slashMenuRef}
+              commands={slashCommands}
+              query={slashQuery}
+              onSelect={handleSlashSelect}
+              onClose={() => setSlashMenuVisible(false)}
+              visible={slashMenuVisible}
+            />
             <textarea
               ref={textareaRef}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={handleInputChange}
               onKeyDown={handleKeyDown}
-              placeholder={configValid ? '问点什么...' : '先到设置里配 LLM 再问'}
+              placeholder={configValid ? '输入 / 查看快捷指令，或直接提问...' : '先到设置里配 LLM 再问'}
               disabled={!configValid}
               rows={3}
               onInput={(e) => {
@@ -631,6 +697,9 @@ function EmptyState({ onPrompt, disabled }) {
             {p}
           </button>
         ))}
+      </div>
+      <div style={{ marginTop: '12px', fontSize: '11px', color: 'var(--text-muted)', opacity: 0.7 }}>
+        💡 输入 / 查看更多快捷指令
       </div>
     </div>
   )
