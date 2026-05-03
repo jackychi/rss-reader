@@ -18,11 +18,11 @@ import SlashCommandMenu from './SlashCommandMenu'
 // 起手建议,空对话时展示。覆盖三类典型用法:
 //   全局浏览(1/2)、分类视图(3)、单篇操作(4/5,需要先在 Reader 里打开文章)
 const STARTER_PROMPTS = [
-  '帮我总结一下 AI 相关的热门话题',
-  '最近更新了什么有意思的话题',
-  '总结这个栏目下有趣的内容',
-  '翻译正文',
-  '总结正文',
+  { text: '帮我总结一下 AI 相关的热门话题', emoji: '🔥' },
+  { text: '最近更新了什么有意思的话题', emoji: '✨' },
+  { text: '总结这个栏目下有趣的内容', emoji: '📋' },
+  { text: '翻译正文', emoji: '🌐', short: true },
+  { text: '总结正文', emoji: '📝', short: true },
 ]
 
 function parseFollowUpQuestions(content) {
@@ -575,7 +575,7 @@ export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticl
             }}
           >
             {messages.length === 0 ? (
-              <EmptyState onPrompt={(p) => handleSend(p)} disabled={!configValid || !articles?.length} />
+              <EmptyState onPrompt={(p) => handleSend(p)} disabled={!configValid || !articles?.length} hasArticle={!!selectedArticle} />
             ) : (
               messages.map((m, idx) => (
                 <Fragment key={idx}>
@@ -667,39 +667,30 @@ export default function AskCatDrawer({ isOpen, onClose, articles, selectedArticl
 
 // ============ 子组件 ============
 
-function EmptyState({ onPrompt, disabled }) {
+function EmptyState({ onPrompt, disabled, hasArticle }) {
   return (
-    <div style={{ margin: 'auto', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginBottom: '16px' }}>
-        <MessageCircle size={28} style={{ opacity: 0.3, flexShrink: 0 }} />
-        <span>基于订阅源里的文章聊聊</span>
+    <div className="askcat-empty">
+      <div className="askcat-empty-icon">
+        <MessageCircle size={24} style={{ color: 'var(--accent-color)', opacity: 0.7 }} />
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+      <div className="askcat-empty-title">基于订阅源里的文章聊聊</div>
+      <div className="askcat-empty-subtitle">Ask anything about your feeds</div>
+      <div className="askcat-empty-cards">
         {STARTER_PROMPTS.map((p) => (
           <button
-            key={p}
-            onClick={() => onPrompt(p)}
-            disabled={disabled}
-            style={{
-              padding: '8px 12px',
-              border: '1px solid var(--border-color)',
-              borderRadius: '6px',
-              backgroundColor: 'var(--bg-secondary)',
-              color: 'var(--text-secondary)',
-              cursor: disabled ? 'default' : 'pointer',
-              fontSize: '12px',
-              opacity: disabled ? 0.5 : 1,
-              textAlign: 'left',
-            }}
-            onMouseEnter={(e) => { if (!disabled) e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)' }}
-            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-secondary)' }}
+            key={p.text}
+            onClick={() => onPrompt(p.text)}
+            disabled={disabled || (p.short && !hasArticle)}
+            className="askcat-empty-card"
           >
-            {p}
+            <span className="askcat-empty-card-icon">{p.emoji}</span>
+            <span>{p.text}</span>
           </button>
         ))}
       </div>
-      <div style={{ marginTop: '12px', fontSize: '11px', color: 'var(--text-muted)', opacity: 0.7 }}>
-        💡 输入 / 查看更多快捷指令
+      <div className="askcat-empty-hint">
+        <span>💡</span>
+        <span>输入 / 查看更多快捷指令</span>
       </div>
     </div>
   )
