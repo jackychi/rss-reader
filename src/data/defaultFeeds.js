@@ -116,6 +116,7 @@ export const defaultFeeds = [
       { title: "Anthropic", xmlUrl: "http://localhost:3847/feed/AnthropicAI" },
       { title: "Claude", xmlUrl: "http://localhost:3847/feed/claudeai" },
       { title: "云风", xmlUrl: "http://localhost:3847/feed/cloudwu" },
+      { title: "卖桃者", xmlUrl: "http://localhost:3847/feed/sagacity" },
     ],
   },
   {

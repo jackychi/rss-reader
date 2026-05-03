@@ -173,7 +173,7 @@ function App() {
   // 字体大小 - 持久化
   const [fontSize, setFontSize] = useLocalStorage(STORAGE_KEYS.FONT_SIZE, 16)
   // 主题 - 持久化
-  const [theme, setTheme] = useLocalStorage(STORAGE_KEYS.THEME, 'light')
+  const [theme, setTheme] = useLocalStorage(STORAGE_KEYS.THEME, 'warm')
   // 分类展开状态 - 持久化
   const [expandedCategories, setExpandedCategories] = useLocalStorage(STORAGE_KEYS.EXPANDED_CATS, {})
   // 用户 ID。当前阶段用 syncid 作为用户标识;后续可替换为墨问用户系统。
