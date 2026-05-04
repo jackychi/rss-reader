@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { X, ChevronRight, ExternalLink, FileText, Play, Pause, Download, Maximize2, Minimize2, Bookmark, BookmarkCheck, Rss, MoreHorizontal, Copy, Check, Send, Loader2, PictureInPicture2, Cat } from 'lucide-react'
+import ImageLightbox from './ImageLightbox'
 import { formatDistanceToNow } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 import { CATREADER_API_URL } from '../utils/constants'
@@ -175,6 +176,7 @@ export default function Reader({
   const [catAnimKey, setCatAnimKey] = useState(0)
   const [floatingArticles, setFloatingArticles] = useState([])
   const [showFloating, setShowFloating] = useState(false)
+  const [lightbox, setLightbox] = useState(null)
   const [isLoadingRecs, setIsLoadingRecs] = useState(false)
   const catTimerRef = useRef(null)
   const catWanderRef = useRef(null)
@@ -1005,6 +1007,23 @@ export default function Reader({
                     className="reader-content"
                     dangerouslySetInnerHTML={{ __html: getArticleContent(selectedArticle) }}
                     style={{ fontSize: `${fontSize}px`, lineHeight: 1.8 }}
+                    onClick={(e) => {
+                      const img = e.target.closest('.reader-content img')
+                      if (!img) return
+                      if (img.naturalWidth > 0 && img.naturalWidth < 80) return
+                      const parentLink = img.closest('a[href]')
+                      if (parentLink) {
+                        const href = parentLink.getAttribute('href')
+                        if (!/\.(jpe?g|png|gif|webp|svg|avif)([?#]|$)/i.test(href)) return
+                        e.preventDefault()
+                      }
+                      const allImgs = Array.from(e.currentTarget.querySelectorAll('img'))
+                        .filter(i => !i.naturalWidth || i.naturalWidth >= 80)
+                        .map(i => i.src)
+                        .filter(Boolean)
+                      const idx = allImgs.indexOf(img.src)
+                      if (idx >= 0) setLightbox({ images: allImgs, index: idx })
+                    }}
                   />
                 </article>
               </div>
@@ -1078,6 +1097,13 @@ export default function Reader({
               )}
             </div>
         </div>
+      )}
+      {lightbox && (
+        <ImageLightbox
+          images={lightbox.images}
+          currentIndex={lightbox.index}
+          onClose={() => setLightbox(null)}
+        />
       )}
     </section>
   )

@@ -1,6 +1,6 @@
 function stripHtml(html) {
   if (!html) return ''
-  return html
+  let text = html
     .replace(/<[^>]*>/g, '')
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
@@ -8,7 +8,9 @@ function stripHtml(html) {
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
-    .trim()
+  text = text.replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)))
+  text = text.replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+  return text.trim()
 }
 
 export function parseChapters(content) {

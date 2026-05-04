@@ -593,7 +593,117 @@ body {
   height: auto;
   border-radius: 4px;
   margin: 1em 0;
+  cursor: zoom-in;
+  transition: opacity 0.15s;
 }
+
+.reader-content img:hover {
+  opacity: 0.85;
+}
+
+.reader-content a > img {
+  cursor: pointer;
+}
+
+.reader-content img[width="1"],
+.reader-content img[height="1"] {
+  cursor: default;
+}
+
+.reader-content .image-link-expand {
+  display: none;
+}
+
+.reader-content video {
+  max-width: 100%;
+  border-radius: 4px;
+  margin: 1em 0;
+}
+
+/* ============ Image Lightbox ============ */
+.lightbox-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  background: rgba(0, 0, 0, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: lightbox-fade-in 0.2s ease;
+}
+
+@keyframes lightbox-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.lightbox-image {
+  max-width: 90vw;
+  max-height: 90vh;
+  object-fit: contain;
+  border-radius: 4px;
+  user-select: none;
+}
+
+.lightbox-header {
+  position: absolute;
+  top: 16px;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  z-index: 1;
+}
+
+.lightbox-counter {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.8);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.lightbox-close {
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.12);
+  border: none;
+  border-radius: 50%;
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+}
+
+.lightbox-close:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.lightbox-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  border-radius: 50%;
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lightbox-arrow:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.lightbox-arrow-left { left: 16px; }
+.lightbox-arrow-right { right: 16px; }
 
 .reader-content blockquote {
   border-left: 3px solid var(--border-color);

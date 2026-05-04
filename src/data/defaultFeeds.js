@@ -120,8 +120,20 @@ export const defaultFeeds = [
     ],
   },
   {
+    category: "AI 深度解读",
+    feeds: [
+      { title: "One Useful Thing (Ethan Mollick)", xmlUrl: "https://oneusefulthing.substack.com/feed" },
+      { title: "Interconnects (Nathan Lambert)", xmlUrl: "https://www.interconnects.ai/feed" },
+      { title: "Import AI (Jack Clark)", xmlUrl: "https://importai.substack.com/feed" },
+      { title: "Latent Space", xmlUrl: "https://latent.space/feed" },
+      { title: "Build to Launch (Jenny Ouyang)", xmlUrl: "https://jennyouyang.substack.com/feed" },
+    ],
+  },
+  {
     category: "技术与工程",
     feeds: [
+      { title: "The Pragmatic Engineer", xmlUrl: "https://newsletter.pragmaticengineer.com/feed" },
+      { title: "ByteByteGo", xmlUrl: "https://blog.bytebytego.com/feed" },
       {
         title: "simonwillison.net",
         xmlUrl: "https://simonwillison.net/atom/everything/",
@@ -326,6 +338,7 @@ export const defaultFeeds = [
         title: "MacTalk·夜航西飞",
         xmlUrl: "https://feed.xyzfm.space/9mkbwqtmr8ma",
       },
+      { title: "不熄灯Lights On", xmlUrl: "https://lightsonforever.substack.com/feed" },
       {
         title: "没折腰FM",
         xmlUrl: "https://www.ximalaya.com/album/43584169.xml",
@@ -440,6 +453,9 @@ export const defaultFeeds = [
   {
     category: "商业与创业",
     feeds: [
+      { title: "a16z", xmlUrl: "https://a16z.substack.com/feed" },
+      { title: "Not Boring (Packy McCormick)", xmlUrl: "https://www.notboring.co/feed" },
+      { title: "The Generalist", xmlUrl: "https://generalist.substack.com/feed" },
       {
         title: "晚点 - 长报道",
         xmlUrl: "https://rsshub-eta-topaz-88.vercel.app/latepost/4",
@@ -480,6 +496,7 @@ export const defaultFeeds = [
   {
     category: "文化与社会",
     feeds: [
+      { title: "Astral Codex Ten (Scott Alexander)", xmlUrl: "https://astralcodexten.substack.com/feed" },
       { title: "pluralistic.net", xmlUrl: "https://pluralistic.net/feed/" },
       { title: "shkspr.mobi", xmlUrl: "https://shkspr.mobi/blog/feed/" },
       { title: "dynomight.net", xmlUrl: "https://dynomight.net/feed.xml" },

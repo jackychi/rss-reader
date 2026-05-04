@@ -839,33 +839,41 @@ function App() {
     if (article.enclosure?.url && article.enclosure.type?.startsWith('image')) {
       return article.enclosure.url
     }
-    const content = article.content || article.contentSnippet || article.description || ''
-    const imgMatch = content.match(/<img[^>]+src=["']([^"']+)["']/i)
-    if (imgMatch && imgMatch[1]) {
-      return imgMatch[1]
+    const fields = [article['content:encoded'], article.content, article.contentSnippet, article.description]
+    for (const field of fields) {
+      if (!field) continue
+      const m = field.match(/<img[^>]+src=["']([^"']+)["']/i)
+      if (m?.[1]) return m[1]
     }
     return null
   }, [])
 
   const getArticleContent = useCallback((article) => {
-    // 配置 DOMPurify 添加 target="_blank" 到所有链接
     const sanitizeOptions = {
-      ADD_ATTR: ['target', 'rel']
+      ADD_ATTR: ['target', 'rel'],
+    }
+
+    const processContent = (content) => {
+      content = content.replace(/<a([^>]*)>/g, '<a$1 target="_blank" rel="noopener noreferrer">')
+      content = content.replace(
+        /<img([^>]*)src=["']([^"']*\.(?:mp4|webm|mov)(?:[?#][^"']*)?)["']([^>]*)\/?>/gi,
+        (match, _pre, url) => {
+          if (/^https:\/\/video\.twimg\.com\//.test(url)) return ''
+          return match
+        }
+      )
+      return DOMPurify.sanitize(content, sanitizeOptions)
     }
 
     if (article['content:encoded']) {
-      let content = article['content:encoded']
-      // 给所有链接添加 target="_blank" 和 rel="noopener noreferrer"
-      content = content.replace(/<a([^>]*)>/g, '<a$1 target="_blank" rel="noopener noreferrer">')
-      return DOMPurify.sanitize(content, sanitizeOptions)
+      return processContent(article['content:encoded'])
     }
     if (article.content) {
       let content = article.content
       if (!/<[a-z][\s\S]*>/i.test(content) && content.includes('\n')) {
         content = toParagraphHtml(content)
       }
-      content = content.replace(/<a([^>]*)>/g, '<a$1 target="_blank" rel="noopener noreferrer">')
-      return DOMPurify.sanitize(content, sanitizeOptions)
+      return processContent(content)
     }
     return article.contentSnippet ? DOMPurify.sanitize(`<p>${article.contentSnippet}</p>`, sanitizeOptions) : ''
   }, [])
