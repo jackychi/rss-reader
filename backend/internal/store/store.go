@@ -42,6 +42,7 @@ type Article struct {
 	GUID           string            `json:"guid"`
 	Content        string            `json:"content,omitempty"`
 	ContentSnippet string            `json:"contentSnippet"`
+	ImageURL       string            `json:"imageUrl,omitempty"`
 	Enclosure      *ArticleEnclosure `json:"enclosure,omitempty"`
 	PublishedAt    time.Time         `json:"publishedAt"`
 	FetchedAt      time.Time         `json:"fetchedAt"`
@@ -182,6 +183,9 @@ func (s *Store) Migrate(ctx context.Context) error {
 	if err := s.addColumnIfMissing(ctx, `ALTER TABLE articles ADD COLUMN enclosure_length TEXT NOT NULL DEFAULT ''`); err != nil {
 		return err
 	}
+	if err := s.addColumnIfMissing(ctx, `ALTER TABLE articles ADD COLUMN image_url TEXT NOT NULL DEFAULT ''`); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -311,9 +315,9 @@ func (s *Store) SaveArticles(ctx context.Context, feed Feed, articles []Article,
 
 	stmt, err := tx.PrepareContext(ctx, `INSERT INTO articles (
 			id, feed_id, feed_url, feed_title, category, title, link, guid,
-			content, content_snippet, enclosure_url, enclosure_type, enclosure_length,
+			content, content_snippet, image_url, enclosure_url, enclosure_type, enclosure_length,
 			published_at, fetched_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(id) DO UPDATE SET
 			feed_id = excluded.feed_id,
 			feed_url = excluded.feed_url,
@@ -324,6 +328,7 @@ func (s *Store) SaveArticles(ctx context.Context, feed Feed, articles []Article,
 			guid = excluded.guid,
 			content = excluded.content,
 			content_snippet = excluded.content_snippet,
+			image_url = excluded.image_url,
 			enclosure_url = excluded.enclosure_url,
 			enclosure_type = excluded.enclosure_type,
 			enclosure_length = excluded.enclosure_length,
@@ -340,7 +345,7 @@ func (s *Store) SaveArticles(ctx context.Context, feed Feed, articles []Article,
 		if _, err := stmt.ExecContext(ctx,
 			article.ID, feed.ID, feed.URL, feed.Title, feed.Category, article.Title,
 			article.Link, article.GUID, article.Content, article.ContentSnippet,
-			enclosureURL, enclosureType, enclosureLength,
+			article.ImageURL, enclosureURL, enclosureType, enclosureLength,
 			article.PublishedAt, article.FetchedAt,
 		); err != nil {
 			return err
@@ -402,7 +407,7 @@ func (s *Store) ListArticles(ctx context.Context, q ArticleQuery) ([]Article, er
 
 	rows, err := s.db.QueryContext(ctx, `SELECT id, feed_id, feed_url, feed_title, category, title,
 			-- 列表页不返回完整正文，减少接口响应体积；详情页再按 ID 查询 content。
-			link, guid, '' AS content, content_snippet, enclosure_url, enclosure_type,
+			link, guid, '' AS content, content_snippet, image_url, enclosure_url, enclosure_type,
 			enclosure_length, published_at, fetched_at
 		FROM articles
 		WHERE `+strings.Join(where, " AND ")+`
@@ -417,7 +422,7 @@ func (s *Store) ListArticles(ctx context.Context, q ArticleQuery) ([]Article, er
 	for rows.Next() {
 		var article Article
 		var enclosureURL, enclosureType, enclosureLength string
-		if err := rows.Scan(&article.ID, &article.FeedID, &article.FeedURL, &article.FeedTitle, &article.Category, &article.Title, &article.Link, &article.GUID, &article.Content, &article.ContentSnippet, &enclosureURL, &enclosureType, &enclosureLength, &article.PublishedAt, &article.FetchedAt); err != nil {
+		if err := rows.Scan(&article.ID, &article.FeedID, &article.FeedURL, &article.FeedTitle, &article.Category, &article.Title, &article.Link, &article.GUID, &article.Content, &article.ContentSnippet, &article.ImageURL, &enclosureURL, &enclosureType, &enclosureLength, &article.PublishedAt, &article.FetchedAt); err != nil {
 			return nil, err
 		}
 		article.Enclosure = articleEnclosure(enclosureURL, enclosureType, enclosureLength)
@@ -430,10 +435,10 @@ func (s *Store) GetArticle(ctx context.Context, id string) (Article, error) {
 	var article Article
 	var enclosureURL, enclosureType, enclosureLength string
 	err := s.db.QueryRowContext(ctx, `SELECT id, feed_id, feed_url, feed_title, category, title,
-			link, guid, content, content_snippet, enclosure_url, enclosure_type,
+			link, guid, content, content_snippet, image_url, enclosure_url, enclosure_type,
 			enclosure_length, published_at, fetched_at
 		FROM articles WHERE id = ?`, id).
-		Scan(&article.ID, &article.FeedID, &article.FeedURL, &article.FeedTitle, &article.Category, &article.Title, &article.Link, &article.GUID, &article.Content, &article.ContentSnippet, &enclosureURL, &enclosureType, &enclosureLength, &article.PublishedAt, &article.FetchedAt)
+		Scan(&article.ID, &article.FeedID, &article.FeedURL, &article.FeedTitle, &article.Category, &article.Title, &article.Link, &article.GUID, &article.Content, &article.ContentSnippet, &article.ImageURL, &enclosureURL, &enclosureType, &enclosureLength, &article.PublishedAt, &article.FetchedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Article{}, err
 	}
@@ -477,7 +482,7 @@ func (s *Store) ListRecentArticlesForFeed(ctx context.Context, feedID int64, lim
 	for rows.Next() {
 		var article Article
 		var enclosureURL, enclosureType, enclosureLength string
-		if err := rows.Scan(&article.ID, &article.FeedID, &article.FeedURL, &article.FeedTitle, &article.Category, &article.Title, &article.Link, &article.GUID, &article.Content, &article.ContentSnippet, &enclosureURL, &enclosureType, &enclosureLength, &article.PublishedAt, &article.FetchedAt); err != nil {
+		if err := rows.Scan(&article.ID, &article.FeedID, &article.FeedURL, &article.FeedTitle, &article.Category, &article.Title, &article.Link, &article.GUID, &article.Content, &article.ContentSnippet, &article.ImageURL, &enclosureURL, &enclosureType, &enclosureLength, &article.PublishedAt, &article.FetchedAt); err != nil {
 			return nil, err
 		}
 		article.Enclosure = articleEnclosure(enclosureURL, enclosureType, enclosureLength)

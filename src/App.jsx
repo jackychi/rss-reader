@@ -830,6 +830,7 @@ function App() {
   }, [])
 
   const getArticleImage = useCallback((article) => {
+    if (article.imageUrl) return article.imageUrl
     if (article.mediaContent?.['$']?.url) {
       return article.mediaContent['$'].url
     }

@@ -98,6 +98,16 @@ type rssItem struct {
 		Type   string `xml:"type,attr"`
 		Length string `xml:"length,attr"`
 	} `xml:"enclosure"`
+	ItunesImage struct {
+		Href string `xml:"href,attr"`
+	} `xml:"http://www.itunes.apple.com/dtds/podcast-1.0.dtd image"`
+	MediaThumbnail struct {
+		URL string `xml:"url,attr"`
+	} `xml:"http://search.yahoo.com/mrss/ thumbnail"`
+	MediaContent struct {
+		URL  string `xml:"url,attr"`
+		Type string `xml:"type,attr"`
+	} `xml:"http://search.yahoo.com/mrss/ content"`
 }
 
 type atomDoc struct {
@@ -113,6 +123,9 @@ type atomEntry struct {
 	Summary   string     `xml:"summary"`
 	Published string     `xml:"published"`
 	Updated   string     `xml:"updated"`
+	MediaThumbnail struct {
+		URL string `xml:"url,attr"`
+	} `xml:"http://search.yahoo.com/mrss/ thumbnail"`
 }
 
 type atomLink struct {
@@ -157,6 +170,7 @@ func mapRSSItems(items []rssItem, feed store.Feed, feedTitle string) []store.Art
 			GUID:           guid,
 			Content:        content,
 			ContentSnippet: snippet(content),
+			ImageURL:       extractImageURL(item.ItunesImage.Href, item.MediaThumbnail.URL, item.MediaContent.URL, item.MediaContent.Type, content),
 			Enclosure:      articleEnclosure(item.Enclosure.URL, item.Enclosure.Type, item.Enclosure.Length),
 			PublishedAt:    published,
 			FetchedAt:      now,
@@ -183,6 +197,7 @@ func mapAtomEntries(entries []atomEntry, feed store.Feed, feedTitle string) []st
 			GUID:           guid,
 			Content:        content,
 			ContentSnippet: snippet(content),
+			ImageURL:       extractImageURL("", entry.MediaThumbnail.URL, "", "", content),
 			Enclosure:      atomEntryEnclosure(entry.Links),
 			PublishedAt:    published,
 			FetchedAt:      now,
@@ -210,6 +225,24 @@ func atomEntryEnclosure(links []atomLink) *store.ArticleEnclosure {
 		}
 	}
 	return nil
+}
+
+var imgSrcRe = regexp.MustCompile(`<img[^>]+src=["']([^"']+)["']`)
+
+func extractImageURL(itunesImage, mediaThumbnail, mediaContentURL, mediaContentType, content string) string {
+	if u := strings.TrimSpace(itunesImage); u != "" {
+		return u
+	}
+	if u := strings.TrimSpace(mediaThumbnail); u != "" {
+		return u
+	}
+	if u := strings.TrimSpace(mediaContentURL); u != "" && strings.HasPrefix(mediaContentType, "image") {
+		return u
+	}
+	if m := imgSrcRe.FindStringSubmatch(content); len(m) > 1 {
+		return html.UnescapeString(m[1])
+	}
+	return ""
 }
 
 func articleEnclosure(url, mediaType, length string) *store.ArticleEnclosure {
